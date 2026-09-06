@@ -8,6 +8,18 @@ Built entirely on open source technologies, InfraDB Assist leverages Retrieval-A
 ## Vision
 To provide a single intelligent platform that enables database and Infra engineers to interact with enterprise knowledge, monitoring systems, logs, incidents, and operational data using natural language.
 
+## Key Capabilities
+
+* **Enterprise Knowledge Search** - Search runbooks, SOPs, architecture documents, and technical documentation using natural language.
+* **Incident Analysis** - Analyze incidents, alerts, errors, and historical resolutions.
+* **Database Intelligence** - Database health, performance, capacity, backup, replication, and troubleshooting.
+* **Infrastructure Intelligence** - Server, storage, network, Kubernetes/openshift, and infrastructure health analysis.
+* **Log Analysis** - Analyze and correlate database, application, system, and infrastructure logs.
+* **Monitoring and Observability** - Query metrics, investigate alerts, and analyze system health.
+* **AI-Assisted Troubleshooting** - Investigate issues and provide evidence-based recommendations.
+* **Operational Knowledge** - Use existing operational knowledge, runbooks, incidents, and resolutions to provide context-aware guidance.
+
+
 
 ## Technology Stack
 
@@ -29,20 +41,4 @@ To provide a single intelligent platform that enables database and Infra enginee
 | Secrets Management | **HashiCorp Vault** |
 
 
-Key Capabilities
-Enterprise Knowledge Search
-Search runbooks, SOPs, architecture documents, troubleshooting guides, and technical documentation using natural language.
-Incident Analysis
-Analyze incidents, errors, alerts, and historical resolutions to identify potential causes and recommended actions.
-Database Intelligence
-Assist with database health checks, performance analysis, capacity planning, backup validation, replication checks, and operational troubleshooting.
-Infrastructure Intelligence
-Analyze server health, CPU, memory, storage, network, Kubernetes resources, and infrastructure alerts.
-Log Analysis
-Correlate and analyze application, database, system, and infrastructure logs.
-Monitoring Integration
-Query monitoring and observability platforms to provide operational insights through natural language.
-AI-Assisted Troubleshooting
-Use AI agents and enterprise tools to investigate issues and provide evidence-based recommendations.
-Operational Knowledge
-Learn from existing documentation, incidents, resolutions, and operational procedures to improve troubleshooting consistency.
+
