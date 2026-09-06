@@ -29,3 +29,20 @@ To provide a single intelligent platform that enables database and Infra enginee
 | Secrets Management | **HashiCorp Vault** |
 
 
+Key Capabilities
+Enterprise Knowledge Search
+Search runbooks, SOPs, architecture documents, troubleshooting guides, and technical documentation using natural language.
+Incident Analysis
+Analyze incidents, errors, alerts, and historical resolutions to identify potential causes and recommended actions.
+Database Intelligence
+Assist with database health checks, performance analysis, capacity planning, backup validation, replication checks, and operational troubleshooting.
+Infrastructure Intelligence
+Analyze server health, CPU, memory, storage, network, Kubernetes resources, and infrastructure alerts.
+Log Analysis
+Correlate and analyze application, database, system, and infrastructure logs.
+Monitoring Integration
+Query monitoring and observability platforms to provide operational insights through natural language.
+AI-Assisted Troubleshooting
+Use AI agents and enterprise tools to investigate issues and provide evidence-based recommendations.
+Operational Knowledge
+Learn from existing documentation, incidents, resolutions, and operational procedures to improve troubleshooting consistency.
