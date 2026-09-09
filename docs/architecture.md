@@ -25,8 +25,8 @@ AI ORCHESTRATOR
     │             MongoDB | SingleStore | Cloudera)
     │
     ├──────────► Infrastructure Tools
-    │            (Linux/OS | Kubernetes | Servers |
-    │             Processes | Resources | Health)
+    │            (Linux/OS | Kubernetes/OpenShift)
+    │ 
     │
     └──────────► Incident & Case Engine
                  (SMAX | Remedy | Vendor Cases)
