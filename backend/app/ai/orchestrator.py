@@ -1,4 +1,6 @@
 from backend.app.tools.registry import ToolRegistry
+from backend.app.ai.ollamaclient import OllamaClient
+
 from backend.app.tools.oracle.tool import OracleTool
 from backend.app.tools.linux.tool import LinuxTool
 from backend.app.tools.postgres.tool import PostgreSQLTool
@@ -14,6 +16,7 @@ class AIOrchestrator:
 
     def __init__(self):
         self.tool_registry = ToolRegistry()
+        self.llm = OllamaClient()
 
         # Register available tools
         self.tool_registry.register(OracleTool())
@@ -26,41 +29,48 @@ class AIOrchestrator:
         self.tool_registry.register(KubernetesTool())
         self.tool_registry.register(OpenShiftTool())
 
-    def select_tool(self, question: str) -> str | None:
+    async def select_tool(self, question: str) -> str | None:
         """
-        Select the appropriate tool for the question.
-
-        This is currently rule-based.
-        It will later be replaced by local LLM-based tool selection.
+        Use the local LLM to select the most appropriate tool.
         """
-        question_lower = question.lower()
 
-        if "oracle" in question_lower:
-            return "oracle_database"
+        tools = self.tool_registry.get_tool_metadata()
 
-        elif "linux" in question_lower or "server" in question_lower:
-            return "linux"
+        tool_list = "\n".join(
+            [
+                f"- {tool['name']}: {tool['description']}"
+                for tool in tools
+            ]
+        )
 
-        elif "postgresql" in question_lower or "postgres" in question_lower:
-            return "postgresql_database"
+        prompt = f"""
+You are the tool-selection engine for InfraDB Assist.
 
-        elif "mysql" in question_lower:
-            return "mysql_database"
+Your job is to select exactly ONE tool for the engineer's question.
 
-        elif "mongodb" in question_lower or "mongo" in question_lower:
-            return "mongodb_database"
+Available tools:
 
-        elif "singlestore" in question_lower or "single store" in question_lower:
-            return "singlestore_database"
+{tool_list}
 
-        elif "cloudera" in question_lower:
-            return "cloudera_platform"
+Rules:
+1. Return ONLY the exact tool name.
+2. Do not explain your answer.
+3. Do not return any other text.
+4. If no tool is suitable, return NONE.
 
-        elif "kubernetes" in question_lower or "k8s" in question_lower:
-            return "kubernetes"
+Engineer question:
+{question}
+"""
 
-        elif "openshift" in question_lower or "open shift" in question_lower:
-            return "openshift"
+        response = await self.llm.generate(prompt)
+
+        selected_tool = response.strip()
+
+        if selected_tool == "NONE":
+            return None
+
+        if self.tool_registry.has(selected_tool):
+            return selected_tool
 
         return None
 
@@ -68,10 +78,11 @@ class AIOrchestrator:
         """
         Validate and execute a registered tool.
         """
+
         if not self.tool_registry.has(tool_name):
             return {
                 "status": "error",
-                "message": f"Tool not registered: {tool_name}"
+                "message": f"Tool not registered: {tool_name}",
             }
 
         tool = self.tool_registry.get(tool_name)
@@ -80,18 +91,57 @@ class AIOrchestrator:
 
         return await tool.execute(request)
 
+    async def generate_answer(
+        self,
+        question: str,
+        tool_name: str,
+        tool_result: dict,
+    ) -> str:
+        """
+        Use the local LLM to convert the tool result
+        into an engineer-friendly answer.
+        """
+
+        prompt = f"""
+You are InfraDB Assist, an AI assistant for Infrastructure
+and Database Engineering.
+
+Answer the engineer's question using ONLY the information
+provided by the tool result.
+
+Engineer question:
+{question}
+
+Tool used:
+{tool_name}
+
+Tool result:
+{tool_result}
+
+Rules:
+1. Do not invent information.
+2. Do not assume facts that are not present in the tool result.
+3. Clearly state the important findings.
+4. Keep the response concise and technical.
+5. If the data is insufficient to answer the question,
+   clearly say that more information is required.
+"""
+
+        return await self.llm.generate(prompt)
+
     async def process(self, question: str) -> dict:
         """
         Process an engineer question.
         """
-        tool_name = self.select_tool(question)
+
+        tool_name = await self.select_tool(question)
 
         if not tool_name:
             return {
                 "question": question,
                 "status": "no_tool_selected",
                 "message": "No suitable tool found.",
-                "available_tools": self.tool_registry.get_tool_metadata()
+                "available_tools": self.tool_registry.get_tool_metadata(),
             }
 
         result = await self.execute_tool(tool_name)
@@ -101,12 +151,22 @@ class AIOrchestrator:
                 "question": question,
                 "selected_tool": tool_name,
                 "status": "error",
-                "message": result.get("message", "Tool execution failed.")
+                "message": result.get(
+                    "message",
+                    "Tool execution failed.",
+                ),
             }
+
+        answer = await self.generate_answer(
+            question,
+            tool_name,
+            result,
+        )
 
         return {
             "question": question,
             "selected_tool": tool_name,
             "status": "success",
-            "tool_result": result
+            "answer": answer,
+            "tool_result": result,
         }
