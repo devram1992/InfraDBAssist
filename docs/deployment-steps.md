@@ -52,3 +52,62 @@ Add to git:
 git add docs/DEVELOPMENT_SETUP.md
 git commit -m "Add development setup documentation"
 git push origin main
+
+Connect Orchestrator to FastAPI
+===================
+Open:
+
+backend/app/main.py
+
+Replace its contents with:
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from backend.app.ai.orchestrator import AIOrchestrator
+
+app = FastAPI(
+    title="InfraDB Assist",
+    description="AI-powered assistant for Infrastructure and Database Engineering",
+    version="0.1.0",
+)
+
+orchestrator = AIOrchestrator()
+
+
+class ChatRequest(BaseModel):
+    question: str
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
+@app.post("/api/v1/chat")
+async def chat(request: ChatRequest):
+    return await orchestrator.process(request.question)
+
+Save it.
+
+
+Test the Chat API
+=================
+
+Keep Uvicorn running and, in another terminal, run:
+
+curl -X POST http://127.0.0.1:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is the Oracle database status?"}'
+
+Expected response:
+
+{
+  "question": "What is the Oracle database status?",
+  "status": "received",
+  "message": "AI Orchestrator received the request."
+
+
+
+
+
