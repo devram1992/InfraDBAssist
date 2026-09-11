@@ -15,10 +15,10 @@ InfraDB Assist
 
 
 
-Metrics
+
 
 Monitor:
-
+==========
 API availability and response time
 Request volume
 AI Orchestrator execution time
@@ -29,10 +29,10 @@ PostgreSQL health
 Kubernetes resource usage
 Error rates
 Application throughput
+
 Logging
-
+==========
 Application logs should capture:
-
 Request/correlation ID
 User activity
 Orchestrator execution
@@ -43,9 +43,8 @@ Processing time
 Sensitive information such as passwords, tokens, and credentials must never be logged.
 
 Alerting
-
+===========
 Alerts should be configured for:
-
 Application unavailable
 High error rate
 High API latency
