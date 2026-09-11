@@ -109,5 +109,13 @@ Expected response:
 
 
 
+Save Dependencies:
+======
+We should record the exact Python packages before adding more components.
+Run:
+pip freeze > backend/requirements.txt
+Then verify:
+cat backend/requirements.txt
+
 
 
