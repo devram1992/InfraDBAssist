@@ -133,3 +133,66 @@ The Orchestrator should ensure that InfraDB Assist provides:
 * Minimal unnecessary system calls
 
 The Orchestrator is therefore the central coordination layer between the engineer, enterprise capabilities, and the local AI engine.
+
+
+## 2. Tool Selection
+
+The AI Orchestrator determines which capabilities are required to answer the engineer's question.
+
+### Selection Flow
+
+```text
+Engineer Question
+       ↓
+AI Orchestrator
+       ↓
+Understand Intent
+       ↓
+Identify Required Information
+       ↓
+Select Capability / Tool(s)
+```
+
+### Examples
+
+**Question:**
+
+> What is the Oracle tablespace usage on PRODDB?
+
+**Selected capability:**
+
+```text
+Database Tools → Oracle
+```
+
+**Question:**
+
+> Show me the runbook for Oracle tablespace issues.
+
+**Selected capability:**
+
+```text
+Knowledge RAG
+```
+
+**Question:**
+
+> Why is PRODDB running out of space, and has this happened before?
+
+**Selected capabilities:**
+
+```text
+Database Tools        → Oracle
+Infrastructure Tools → Linux / OS
+Knowledge RAG         → Previous RCA / Runbook
+Incident & Case       → Similar Cases
+```
+
+### Selection Principles
+
+* Select only the capabilities required for the question.
+* Use multiple capabilities when the investigation requires information from different sources.
+* Execute independent tools in parallel where possible.
+* Verify user permissions before executing a tool.
+* The LLM must not directly access enterprise systems.
+
