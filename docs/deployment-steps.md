@@ -136,4 +136,148 @@ class Tool(ABC):
         """Execute the tool and return a structured result."""
         pass
 
+Implement the Tool Registry
+=======
+Open:
+backend/app/tools/registry.py
 
+Put this:
+from backend.app.tools.base import Tool
+
+class ToolRegistry:
+    def __init__(self):
+        self._tools: dict[str, Tool] = {}
+
+    def register(self, tool: Tool) -> None:
+        self._tools[tool.name] = tool
+
+    def get(self, name: str) -> Tool | None:
+        return self._tools.get(name)
+
+    def list_tools(self) -> list[Tool]:
+        return list(self._tools.values())
+
+
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % cat backend/requirements.txt
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+click==8.5.0
+fastapi==0.141.1
+h11==0.16.0
+idna==3.19
+packaging==26.3
+pydantic==2.13.5
+pydantic_core==2.46.5
+setuptools==83.0.0
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.52.4
+wheel==0.47.0
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % mkdir -p backend/app/tools
+touch backend/app/tools/__init__.py
+touch backend/app/tools/base.py
+touch backend/app/tools/registry.py
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % find backend/app/tools -maxdepth 1 -type f
+backend/app/tools/registry.py
+backend/app/tools/__init__.py
+backend/app/tools/base.py
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % mkdir -p backend/app/tools/oracle
+touch backend/app/tools/oracle/__init__.py
+touch backend/app/tools/oracle/tool.py
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % find backend/app/tools/oracle -maxdepth 1 -type f
+backend/app/tools/oracle/__init__.py
+backend/app/tools/oracle/tool.py
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % 
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist %
+
+
+
+We should test the framework before connecting to a real production database.
+
+Create:
+
+mkdir -p backend/app/tools/oracle
+touch backend/app/tools/oracle/__init__.py
+touch backend/app/tools/oracle/tool.py
+
+Verify:
+
+find backend/app/tools/oracle -maxdepth 1 -type f
+
+Expected:
+
+backend/app/tools/oracle/__init__.py
+backend/app/tools/oracle/tool.py
+
+
+Implement the Mock Oracle Tool
+
+from backend.app.tools.base import Tool
+
+
+class OracleTool(Tool):
+    name = "oracle_database"
+    description = "Read-only Oracle database diagnostics"
+    permission = "database.read"
+    read_only = True
+
+    async def execute(self, request: dict) -> dict:
+        return {
+            "tool": self.name,
+            "status": "success",
+            "data": {
+                "database": request.get("database", "UNKNOWN"),
+                "status": "OPEN",
+                "message": "Mock Oracle response"
+            }
+        }
+
+
+
+
+# Initial Backend Implementation
+
+The initial backend implementation includes:
+
+- FastAPI application
+- AI Orchestrator
+- Tool Registry
+- Common Tool interface
+- Mock Oracle database tool
+- Mock Linux infrastructure tool
+- Rule-based tool selection
+- Read-only tool execution model
+- Git ignore configuration for Python cache files
+
+### Current Tool Flow
+
+```text
+User Question
+      ↓
+FastAPI
+      ↓
+AI Orchestrator
+      ↓
+Tool Registry
+      ↓
+Selected Tool
+      ↓
+Structured Result
+Current Tools
+Tool	Name	Permission	Mode
+Oracle	oracle_database	database.read	Read-only
+Linux	linux	infrastructure.read	Read-only
+
+The current tools return mock data for development and testing.
+
+Real infrastructure and database connections will be added incrementally after the tool framework is validated.
