@@ -87,9 +87,24 @@ Engineer question:
 
         tool = self.tool_registry.get(tool_name)
 
-        request = tool.build_request()
+        try:
+            request = tool.build_request()
 
-        return await tool.execute(request)
+            tool.validate_request(request)
+
+            return await tool.execute(request)
+
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "message": f"Tool request validation failed: {exc}",
+            }
+
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"Tool execution failed: {exc}",
+            }
 
     async def generate_answer(
         self,
