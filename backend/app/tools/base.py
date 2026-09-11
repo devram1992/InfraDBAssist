@@ -11,3 +11,7 @@ class Tool(ABC):
     async def execute(self, request: dict) -> dict:
         """Execute the tool and return a structured result."""
         pass
+
+    def build_request(self, **kwargs) -> dict:
+        """Build a request for tool execution."""
+        return kwargs

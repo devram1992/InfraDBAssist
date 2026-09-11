@@ -17,3 +17,14 @@ class ToolRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._tools
+
+    def get_tool_metadata(self) -> list[dict]:
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "permission": tool.permission,
+                "read_only": tool.read_only,
+            }
+            for tool in self._tools.values()
+        ]

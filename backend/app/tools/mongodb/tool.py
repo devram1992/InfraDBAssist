@@ -1,15 +1,15 @@
 from backend.app.tools.base import Tool
 
 
-class OracleTool(Tool):
-    name = "oracle_database"
-    description = "Read-only Oracle database diagnostics"
+class MongoDBTool(Tool):
+    name = "mongodb_database"
+    description = "Read-only MongoDB database diagnostics"
     permission = "database.read"
     read_only = True
 
     def build_request(self) -> dict:
         return {
-            "database": "PRODDB"
+            "database": "MONGODB"
         }
 
     async def execute(self, request: dict) -> dict:
@@ -18,8 +18,8 @@ class OracleTool(Tool):
             "status": "success",
             "data": {
                 "database": request.get("database", "UNKNOWN"),
-                "status": "OPEN",
-                "message": "Mock Oracle response"
+                "status": "UP",
+                "connections": 15,
+                "message": "Mock MongoDB response"
             }
         }
-    

@@ -1,15 +1,15 @@
 from backend.app.tools.base import Tool
 
 
-class OracleTool(Tool):
-    name = "oracle_database"
-    description = "Read-only Oracle database diagnostics"
+class PostgreSQLTool(Tool):
+    name = "postgresql_database"
+    description = "Read-only PostgreSQL database diagnostics"
     permission = "database.read"
     read_only = True
 
     def build_request(self) -> dict:
         return {
-            "database": "PRODDB"
+            "database": "POSTGRESDB"
         }
 
     async def execute(self, request: dict) -> dict:
@@ -18,8 +18,8 @@ class OracleTool(Tool):
             "status": "success",
             "data": {
                 "database": request.get("database", "UNKNOWN"),
-                "status": "OPEN",
-                "message": "Mock Oracle response"
+                "status": "UP",
+                "connections": 42,
+                "message": "Mock PostgreSQL response"
             }
         }
-    

@@ -7,6 +7,11 @@ class LinuxTool(Tool):
     permission = "infrastructure.read"
     read_only = True
 
+    def build_request(self) -> dict:
+        return {
+            "server": "PROD-SERVER"
+        }
+
     async def execute(self, request: dict) -> dict:
         return {
             "tool": self.name,
