@@ -56,3 +56,15 @@ users
 
 knowledge_documents
  └── knowledge_chunks ──► embedding (pgvector)
+
+
+
+Design Principles:
+=================
+PostgreSQL is the primary application database.
+pgvector stores knowledge embeddings for RAG.
+Conversations and messages provide chat history.
+Tool executions and audit logs provide traceability.
+Foreign keys maintain data relationships.
+Indexes will be added for frequently queried fields.
+Credentials and secrets are not stored in the database
