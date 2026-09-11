@@ -1,58 +1,54 @@
 # InfraDB Assist - Development Setup
 
-## 1. Prerequisites
-- macOS
+## Prerequisites
+
 - Git
 - Docker Desktop
 - Conda
 - Python 3.12
 
-## 2. Repository Setup
+## Conda Environment
 
 ```bash
-git clone <repository>
-cd InfraDBAssist
-
-
-3. Conda Environment
 conda create -n infradb-assist python=3.12 -y
 conda activate infradb-assist
 
 Verify:
 
 python --version
-4. Backend Setup
+Backend Setup
 mkdir -p backend/app
-5. Python Dependencies
-pip install fastapi uvicorn
-pip show fastapi uvicorn
+touch backend/app/__init__.py
+touch backend/app/main.py
+Python Dependencies
+python -m pip install fastapi uvicorn
+FastAPI Application
 
-6. Backend Structure
-backend/
-└── app/
+Run from the project root:
 
+python -m uvicorn backend.app.main:app --reload
 
+Application:
 
+http://127.0.0.1:8000
 
-steps : 1 Create the First FastAPI Application (From Visual studio or directly from python in backend) 
+Health check:
 
-Open:
-backend/app/main.py
+curl http://127.0.0.1:8000/health
 
-Put this code in it:
-from fastapi import FastAPI
+Expected:
 
-app = FastAPI(
-    title="InfraDB Assist",
-    description="AI-powered assistant for Infrastructure and Database Engineering",
-    version="0.1.0",
-)
+{"status":"ok"}
+Important
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+Use:
 
-Save it.
-Then start the application:
+python -m uvicorn
 
-(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % python -m uvicorn backend.app.main:app --reload
+instead of relying on the system uvicorn command, because multiple Python installations may exist on the development machine.
+
+Add to git:
+=======
+git add docs/DEVELOPMENT_SETUP.md
+git commit -m "Add development setup documentation"
+git push origin main
