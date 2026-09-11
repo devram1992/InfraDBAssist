@@ -14,15 +14,18 @@ PostgreSQL
 ├── knowledge_chunks
 ├── audit_logs
 └── tool_executions
-Core Tables
-Table	Purpose
-users	Application users, roles and status
-conversations	Chat sessions
-messages	User and AI messages
-knowledge_documents	RAG document metadata
-knowledge_chunks	Document chunks and embeddings
-audit_logs	User and system activity
-tool_executions	AI Orchestrator tool execution history
+
+
+| Table                 | Purpose                                |
+| --------------------- | -------------------------------------- |
+| `users`               | Application users, roles and status    |
+| `conversations`       | Chat sessions                          |
+| `messages`            | User and AI messages                   |
+| `knowledge_documents` | RAG document metadata                  |
+| `knowledge_chunks`    | Document chunks and embeddings         |
+| `audit_logs`          | User and system activity               |
+| `tool_executions`     | AI Orchestrator tool execution history |
+
 Key Data
 users
     id, username, email, role, status, created_at
@@ -44,6 +47,7 @@ audit_logs
 
 tool_executions
     id, user_id, tool_name, input, output, status, execution_time
+
 Relationships
 users
  ├── conversations ──► messages
