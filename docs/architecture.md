@@ -44,7 +44,7 @@ AI ORCHESTRATOR
                          │
                          ▼
                 INTELLIGENT ANSWER
-                (Findings | Evidence |
+                (Findings | Evidence 
                  Recommendations)
 
 
