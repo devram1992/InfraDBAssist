@@ -1,6 +1,6 @@
-# AI Orchestrator Design
+# 1.AI Orchestrator Design
 
-## 1. Purpose
+## a. Purpose
 
 The AI Orchestrator is the central decision-making component of InfraDB Assist.
 
@@ -8,7 +8,7 @@ It receives the engineer's question from the FastAPI API, determines what inform
 
 The Orchestrator does not directly access databases, servers, Kubernetes, or enterprise systems. It interacts with them through controlled, read-only tools.
 
-## 2. Core Responsibility
+## b. Core Responsibility
 
 The Orchestrator follows this logical flow:
 
@@ -34,7 +34,7 @@ Local AI Engine (Ollama)
 Intelligent Answer
 ```
 
-## 3. Capabilities Controlled by the Orchestrator
+## c. Capabilities Controlled by the Orchestrator
 
 The Orchestrator can use one or more of the following capabilities depending on the question:
 
@@ -73,7 +73,7 @@ The Orchestrator can use one or more of the following capabilities depending on 
 
 The Orchestrator may invoke a single capability or multiple capabilities in parallel when required.
 
-## 4. Example
+## d. Example
 
 For a question such as:
 
@@ -101,7 +101,7 @@ Similar historical cases
 
 The results are then consolidated and passed as relevant context to the local AI engine.
 
-## 5. Key Design Principle
+## e. Key Design Principle
 
 The Orchestrator is the **central controller**, while the individual capabilities are controlled execution layers.
 
@@ -121,7 +121,7 @@ The local LLM must not have unrestricted access to enterprise systems.
 
 All system access must happen through controlled tools with defined permissions and read-only access.
 
-## 6. Primary Objective
+## f. Primary Objective
 
 The Orchestrator should ensure that InfraDB Assist provides:
 
