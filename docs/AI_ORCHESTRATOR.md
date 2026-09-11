@@ -196,3 +196,53 @@ Incident & Case       → Similar Cases
 * Verify user permissions before executing a tool.
 * The LLM must not directly access enterprise systems.
 
+
+## 3. Tool Execution
+
+After selecting the required capabilities, the AI Orchestrator executes the corresponding tools and collects their results.
+
+### Execution Flow
+
+```text id="3x6wqk"
+Selected Tools
+      ↓
+Permission Check
+      ↓
+Tool Validation
+      ↓
+Execute Tool
+      ↓
+Collect Result
+      ↓
+Return Result to Orchestrator
+```
+
+### Example
+
+For a database performance investigation:
+
+```text id="9l0c5k"
+AI Orchestrator
+      │
+      ├──► Oracle Tool
+      │       └── Performance Data
+      │
+      ├──► Linux Tool
+      │       └── Server Resource Data
+      │
+      └──► Knowledge RAG
+              └── Previous RCA / Runbook
+```
+
+Independent tools can be executed **in parallel** to reduce response time.
+
+### Execution Principles
+
+* Every tool must have a defined interface and permitted operations.
+* User permissions must be validated before execution.
+* Production database and infrastructure access is **read-only**.
+* Tool failures must be captured and reported to the Orchestrator.
+* Every execution should be auditable.
+* The Orchestrator receives structured results rather than raw uncontrolled output.
+
+
