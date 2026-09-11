@@ -25,6 +25,34 @@ python --version
 mkdir -p backend/app
 5. Python Dependencies
 pip install fastapi uvicorn
+pip show fastapi uvicorn
+
 6. Backend Structure
 backend/
 └── app/
+
+
+
+
+steps : 1 Create the First FastAPI Application (From Visual studio or directly from python in backend) 
+
+Open:
+backend/app/main.py
+
+Put this code in it:
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="InfraDB Assist",
+    description="AI-powered assistant for Infrastructure and Database Engineering",
+    version="0.1.0",
+)
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+Save it.
+Then start the application:
+
+(infradb-assist) ananddev@Anands-MacBook-Air ~/InfraDBAssist % python -m uvicorn backend.app.main:app --reload
