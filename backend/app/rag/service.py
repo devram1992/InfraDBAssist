@@ -14,7 +14,8 @@ class RAGService:
         limit: int = 5,
     ) -> list[dict]:
         """
-        Search the knowledge base using semantic similarity.
+        Search the knowledge base using chunk-level
+        semantic similarity.
         """
 
         if not question or not question.strip():
@@ -26,7 +27,7 @@ class RAGService:
             question
         )
 
-        return self.repository.search_similar(
+        return self.repository.search_similar_chunks(
             embedding=embedding,
             limit=limit,
         )

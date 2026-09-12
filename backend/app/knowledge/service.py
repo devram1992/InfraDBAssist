@@ -1,5 +1,6 @@
 from backend.app.ai.embedding import EmbeddingClient
 from backend.app.database.repository import KnowledgeRepository
+from backend.app.knowledge.chunker import DocumentChunker
 
 
 class KnowledgeService:
@@ -7,6 +8,7 @@ class KnowledgeService:
     def __init__(self):
         self.embedding_client = EmbeddingClient()
         self.repository = KnowledgeRepository()
+        self.chunker = DocumentChunker()
 
     async def ingest_document(
         self,
@@ -17,10 +19,8 @@ class KnowledgeService:
         metadata: dict | None = None,
     ) -> int:
         """
-        Store a knowledge document and generate its embedding.
-
-        If embedding generation fails, remove the partially
-        created document to prevent incomplete knowledge records.
+        Store a knowledge document, split it into chunks,
+        generate embeddings, and store the chunks.
         """
 
         if not title or not title.strip():
@@ -42,14 +42,24 @@ class KnowledgeService:
         )
 
         try:
-            embedding = await self.embedding_client.embed(
-                content
-            )
+            chunks = self.chunker.split(content)
 
-            self.repository.update_embedding(
-                document_id=document_id,
-                embedding=embedding,
-            )
+            for chunk_index, chunk_content in enumerate(chunks):
+                chunk_id = self.repository.create_chunk(
+                    document_id=document_id,
+                    chunk_index=chunk_index,
+                    content=chunk_content,
+                    metadata=metadata,
+                )
+
+                embedding = await self.embedding_client.embed(
+                    chunk_content
+                )
+
+                self.repository.update_chunk_embedding(
+                    chunk_id=chunk_id,
+                    embedding=embedding,
+                )
 
         except Exception:
             try:

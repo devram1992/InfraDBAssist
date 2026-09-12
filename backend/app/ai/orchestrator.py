@@ -75,12 +75,15 @@ Rules:
 2. Return ONLY valid JSON.
 3. Do not include markdown.
 4. Do not include explanations.
-5. Extract only parameters explicitly provided by the engineer.
+5. Extract parameters explicitly provided by the engineer.
 6. Use the exact parameter names defined by the selected tool.
 7. Do not invent parameter values.
-8. If a parameter is not explicitly provided, do not create a value for it.
-9. If no tool is suitable, return:
-   {{"tool": "NONE", "parameters": {{}}}}
+8. If a parameter is not explicitly provided, omit it.
+9. The selected tool may apply its own safe default for omitted parameters.
+10. Do not select a tool only because a parameter is missing if the tool
+    can safely handle the missing parameter using its own default.
+11. If no tool is suitable, return:
+    {{"tool": "NONE", "parameters": {{}}}}
 
 Engineer question:
 
