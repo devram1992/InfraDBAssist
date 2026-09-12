@@ -109,3 +109,45 @@ async def test_ingest_directory_returns_empty_list_when_no_files_found(
     )
 
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_ingest_directory_propagates_document_load_failure(
+    monkeypatch,
+):
+    service = InternalIngestionService()
+
+    discovered_files = [
+        "knowledge/runbooks/oracle_performance.md",
+    ]
+
+    monkeypatch.setattr(
+        service.discovery,
+        "discover",
+        lambda directory: discovered_files,
+    )
+
+    monkeypatch.setattr(
+        service.classifier,
+        "classify",
+        lambda file_path: "runbook",
+    )
+
+    def fail_load(file_path):
+        raise ValueError(
+            "Unable to load knowledge document."
+        )
+
+    monkeypatch.setattr(
+        service.knowledge_service.document_loader,
+        "load",
+        fail_load,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unable to load knowledge document.",
+    ):
+        await service.ingest_directory(
+            "knowledge"
+        )
