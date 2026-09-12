@@ -74,7 +74,24 @@ def test_chunker_returns_single_chunk_for_small_document():
 
     chunks = chunker.split(content)
 
-    assert chunks == [content]
+    assert chunks == [
+        content
+    ]
+
+
+def test_chunker_returns_single_chunk_at_exact_chunk_size():
+    chunker = DocumentChunker(
+        chunk_size=10,
+        chunk_overlap=2,
+    )
+
+    content = "ABCDEFGHIJ"
+
+    chunks = chunker.split(content)
+
+    assert chunks == [
+        content
+    ]
 
 
 def test_chunker_creates_overlapping_chunks():
