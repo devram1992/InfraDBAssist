@@ -144,3 +144,63 @@ def test_replace_document_rolls_back_on_chunk_insert_failure():
     assert document_chunks[0]["content"] == "Original chunk"
 
     repository.delete_document(document_id)
+
+
+def test_search_similar_rejects_invalid_dimension():
+    repository = KnowledgeRepository()
+
+    embedding = [0.1, 0.2, 0.3]
+
+    with pytest.raises(
+        ValueError,
+        match="Expected 1024 dimensions, received 3.",
+    ):
+        repository.search_similar(
+            embedding=embedding,
+            limit=5,
+        )
+
+
+def test_search_similar_rejects_invalid_limit():
+    repository = KnowledgeRepository()
+
+    embedding = [0.1] * 1024
+
+    with pytest.raises(
+        ValueError,
+        match="Limit must be greater than zero.",
+    ):
+        repository.search_similar(
+            embedding=embedding,
+            limit=0,
+        )
+
+
+def test_search_similar_chunks_rejects_invalid_dimension():
+    repository = KnowledgeRepository()
+
+    embedding = [0.1, 0.2, 0.3]
+
+    with pytest.raises(
+        ValueError,
+        match="Expected 1024 dimensions, received 3.",
+    ):
+        repository.search_similar_chunks(
+            embedding=embedding,
+            limit=5,
+        )
+
+
+def test_search_similar_chunks_rejects_invalid_limit():
+    repository = KnowledgeRepository()
+
+    embedding = [0.1] * 1024
+
+    with pytest.raises(
+        ValueError,
+        match="Limit must be greater than zero.",
+    ):
+        repository.search_similar_chunks(
+            embedding=embedding,
+            limit=0,
+        )
