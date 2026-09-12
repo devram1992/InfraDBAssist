@@ -1,4 +1,5 @@
 CREATE TABLE IF NOT EXISTS knowledge_documents (
+
     id BIGSERIAL PRIMARY KEY,
 
     title TEXT NOT NULL,
@@ -9,9 +10,12 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
 
     source_reference TEXT,
 
+    content_hash VARCHAR(64),
+
     metadata JSONB DEFAULT '{}'::jsonb,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
 );
