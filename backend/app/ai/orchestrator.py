@@ -1,5 +1,7 @@
 from backend.app.tools.registry import ToolRegistry
+
 from backend.app.ai.ollamaclient import OllamaClient
+from backend.app.rag.service import RAGService
 
 from backend.app.tools.oracle.tool import OracleTool
 from backend.app.tools.linux.tool import LinuxTool
@@ -17,6 +19,7 @@ class AIOrchestrator:
     def __init__(self):
         self.tool_registry = ToolRegistry()
         self.llm = OllamaClient()
+        self.rag = RAGService()
 
         # Register available tools
         self.tool_registry.register(OracleTool())
@@ -67,6 +70,7 @@ Return ONLY valid JSON using this exact structure:
 }}
 
 Rules:
+
 1. The tool must be one of the available tools.
 2. Return ONLY valid JSON.
 3. Do not include markdown.
@@ -79,6 +83,7 @@ Rules:
    {{"tool": "NONE", "parameters": {{}}}}
 
 Engineer question:
+
 {question}
 """
 
@@ -150,47 +155,93 @@ Engineer question:
                 "message": f"Tool execution failed: {exc}",
             }
 
+    async def search_knowledge(
+        self,
+        question: str,
+        limit: int = 5,
+    ) -> list[dict]:
+        """
+        Search the internal knowledge base using semantic similarity.
+        """
+
+        try:
+            return await self.rag.search(
+                question=question,
+                limit=limit,
+            )
+
+        except Exception:
+            return []
+
     async def generate_answer(
         self,
         question: str,
         tool_name: str,
         tool_result: dict,
+        knowledge_results: list[dict],
     ) -> str:
         """
-        Use the local LLM to convert the tool result
-        into an engineer-friendly answer.
+        Use the local LLM to generate an engineer-friendly answer
+        using both tool results and internal knowledge.
         """
+
+        knowledge_context = "\n\n".join(
+            [
+                (
+                    f"Knowledge Document: {item['title']}\n"
+                    f"Source Type: {item['source_type']}\n"
+                    f"Similarity: {item['similarity']:.4f}\n"
+                    f"Content:\n{item['content']}"
+                )
+                for item in knowledge_results
+            ]
+        )
+
+        if not knowledge_context:
+            knowledge_context = "No relevant internal knowledge was found."
 
         prompt = f"""
 You are InfraDB Assist, an AI assistant for Infrastructure
 and Database Engineering.
 
-Answer the engineer's question using ONLY the information
-provided by the tool result.
+Answer the engineer's question using the available evidence below.
 
 Engineer question:
+
 {question}
 
 Tool used:
+
 {tool_name}
 
 Tool result:
+
 {tool_result}
 
+Relevant internal knowledge:
+
+{knowledge_context}
+
 Rules:
+
 1. Do not invent information.
-2. Do not assume facts that are not present in the tool result.
-3. Clearly state the important findings.
-4. Keep the response concise and technical.
-5. If the data is insufficient to answer the question,
-   clearly say that more information is required.
+2. Use the tool result as the primary source for current system state.
+3. Use internal knowledge to provide troubleshooting guidance,
+   context, procedures, and recommendations.
+4. Clearly distinguish current findings from general guidance.
+5. Do not treat internal knowledge as proof of current system state.
+6. If the available information is insufficient, clearly state
+   what additional information is required.
+7. Keep the response concise and technical.
+8. Do not mention internal implementation details such as
+   embeddings, vector databases, or RAG.
 """
 
         return await self.llm.generate(prompt)
 
     async def process(self, question: str) -> dict:
         """
-        Process an engineer question.
+        Process an engineer question using tools and internal knowledge.
         """
 
         tool_selection = await self.select_tool(question)
@@ -223,10 +274,16 @@ Rules:
                 ),
             }
 
+        knowledge_results = await self.search_knowledge(
+            question=question,
+            limit=5,
+        )
+
         answer = await self.generate_answer(
-            question,
-            tool_name,
-            result,
+            question=question,
+            tool_name=tool_name,
+            tool_result=result,
+            knowledge_results=knowledge_results,
         )
 
         return {
@@ -236,4 +293,5 @@ Rules:
             "status": "success",
             "answer": answer,
             "tool_result": result,
+            "knowledge_results": knowledge_results,
         }
