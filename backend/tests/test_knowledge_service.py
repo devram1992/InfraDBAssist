@@ -58,3 +58,57 @@ async def test_ingest_document_rejects_empty_content():
             content="",
             source_type="sop",
         )
+
+
+@pytest.mark.asyncio
+async def test_ingest_document_skips_unchanged_document(
+    monkeypatch,
+):
+    service = KnowledgeService()
+
+    content = "Database backup verification"
+    content_hash = service.calculate_content_hash(
+        content
+    )
+
+    existing_document = {
+        "id": 123,
+        "title": "Database Backup",
+        "content": content,
+        "source_type": "sop",
+        "source_reference": "test/database_backup.md",
+        "metadata": {},
+        "content_hash": content_hash,
+    }
+
+    def mock_get_document_by_source_reference(
+        source_reference,
+    ):
+        assert source_reference == "test/database_backup.md"
+        return existing_document
+
+    async def fail_if_embedding_called(text):
+        raise AssertionError(
+            "Embedding should not be generated for unchanged content."
+        )
+
+    monkeypatch.setattr(
+        service.repository,
+        "get_document_by_source_reference",
+        mock_get_document_by_source_reference,
+    )
+
+    monkeypatch.setattr(
+        service.embedding_client,
+        "embed",
+        fail_if_embedding_called,
+    )
+
+    document_id = await service.ingest_document(
+        title="Database Backup",
+        content=content,
+        source_type="sop",
+        source_reference="test/database_backup.md",
+    )
+
+    assert document_id == 123
