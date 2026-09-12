@@ -1,3 +1,5 @@
+from ingestion.internal.loader import InternalDocumentLoader
+
 from backend.app.ai.embedding import EmbeddingClient
 from backend.app.database.repository import KnowledgeRepository
 from backend.app.knowledge.chunker import DocumentChunker
@@ -9,6 +11,7 @@ class KnowledgeService:
         self.embedding_client = EmbeddingClient()
         self.repository = KnowledgeRepository()
         self.chunker = DocumentChunker()
+        self.document_loader = InternalDocumentLoader()
 
     async def ingest_document(
         self,
@@ -24,14 +27,10 @@ class KnowledgeService:
         """
 
         if not title or not title.strip():
-            raise ValueError(
-                "Document title cannot be empty."
-            )
+            raise ValueError("Document title cannot be empty.")
 
         if not content or not content.strip():
-            raise ValueError(
-                "Document content cannot be empty."
-            )
+            raise ValueError("Document content cannot be empty.")
 
         document_id = self.repository.create_document(
             title=title,
@@ -72,3 +71,19 @@ class KnowledgeService:
             raise
 
         return document_id
+
+    async def ingest_file(self, file_path: str) -> int:
+        """
+        Load a local internal knowledge document and ingest it
+        into the knowledge base.
+        """
+
+        document = self.document_loader.load(file_path)
+
+        return await self.ingest_document(
+            title=document["title"],
+            content=document["content"],
+            source_type=document["source_type"],
+            source_reference=document["source_reference"],
+            metadata=document["metadata"],
+        )
