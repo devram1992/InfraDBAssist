@@ -121,7 +121,10 @@ async def test_ingest_document_updates_changed_document(
     service = KnowledgeService()
 
     old_content = "Database backup verification"
-    new_content = "Database backup verification and archive log validation"
+    new_content = (
+        "Database backup verification and "
+        "archive log validation"
+    )
 
     old_hash = service.calculate_content_hash(
         old_content
@@ -191,4 +194,93 @@ async def test_ingest_document_updates_changed_document(
 
     assert len(replace_request["chunks"]) == 1
     assert replace_request["chunks"][0]["content"] == new_content
-    assert len(replace_request["chunks"][0]["embedding"]) == 1024
+    assert len(
+        replace_request["chunks"][0]["embedding"]
+    ) == 1024
+
+
+@pytest.mark.asyncio
+async def test_ingest_document_cleans_up_new_document_on_failure(
+    monkeypatch,
+):
+    service = KnowledgeService()
+
+    created_document_id = 789
+
+    def mock_create_document(**kwargs):
+        return created_document_id
+
+    def mock_update_content_hash(
+        document_id,
+        content_hash,
+    ):
+        assert document_id == created_document_id
+
+    def fail_replace_document_chunks(
+        document_id,
+        chunks,
+    ):
+        raise RuntimeError(
+            "Failed to insert knowledge chunks."
+        )
+
+    deleted_document_ids = []
+
+    def mock_delete_document(document_id):
+        deleted_document_ids.append(
+            document_id
+        )
+
+    async def mock_embed(text):
+        return [0.1] * 1024
+
+    monkeypatch.setattr(
+        service.repository,
+        "get_document_by_source_reference",
+        lambda source_reference: None,
+    )
+
+    monkeypatch.setattr(
+        service.repository,
+        "create_document",
+        mock_create_document,
+    )
+
+    monkeypatch.setattr(
+        service.repository,
+        "update_content_hash",
+        mock_update_content_hash,
+    )
+
+    monkeypatch.setattr(
+        service.repository,
+        "replace_document_chunks",
+        fail_replace_document_chunks,
+    )
+
+    monkeypatch.setattr(
+        service.repository,
+        "delete_document",
+        mock_delete_document,
+    )
+
+    monkeypatch.setattr(
+        service.embedding_client,
+        "embed",
+        mock_embed,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to insert knowledge chunks.",
+    ):
+        await service.ingest_document(
+            title="Database Backup",
+            content="Database backup verification",
+            source_type="sop",
+            source_reference="test/database_backup.md",
+        )
+
+    assert deleted_document_ids == [
+        created_document_id
+    ]
