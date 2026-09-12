@@ -18,6 +18,9 @@ class KnowledgeService:
     ) -> int:
         """
         Store a knowledge document and generate its embedding.
+
+        If embedding generation fails, remove the partially
+        created document to prevent incomplete knowledge records.
         """
 
         if not title or not title.strip():
@@ -38,13 +41,24 @@ class KnowledgeService:
             metadata=metadata,
         )
 
-        embedding = await self.embedding_client.embed(
-            content
-        )
+        try:
+            embedding = await self.embedding_client.embed(
+                content
+            )
 
-        self.repository.update_embedding(
-            document_id=document_id,
-            embedding=embedding,
-        )
+            self.repository.update_embedding(
+                document_id=document_id,
+                embedding=embedding,
+            )
+
+        except Exception:
+            try:
+                self.repository.delete_document(
+                    document_id=document_id
+                )
+            except Exception:
+                pass
+
+            raise
 
         return document_id

@@ -56,6 +56,33 @@ class KnowledgeRepository:
 
                 return document_id
 
+    def delete_document(
+        self,
+        document_id: int,
+    ) -> None:
+        """
+        Delete a knowledge document by ID.
+        """
+
+        query = """
+            DELETE FROM knowledge_documents
+            WHERE id = %s;
+        """
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (document_id,),
+                )
+
+                if cursor.rowcount == 0:
+                    raise ValueError(
+                        f"Knowledge document not found: {document_id}"
+                    )
+
+                conn.commit()
+
     def update_embedding(
         self,
         document_id: int,
@@ -93,7 +120,10 @@ class KnowledgeRepository:
 
                 conn.commit()
 
-    def get_document(self, document_id: int) -> dict | None:
+    def get_document(
+        self,
+        document_id: int,
+    ) -> dict | None:
         """
         Retrieve a knowledge document by ID.
         """
@@ -114,7 +144,10 @@ class KnowledgeRepository:
 
         with get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (document_id,))
+                cursor.execute(
+                    query,
+                    (document_id,),
+                )
 
                 row = cursor.fetchone()
 
