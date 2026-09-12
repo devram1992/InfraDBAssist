@@ -29,16 +29,22 @@ class AIOrchestrator:
         self.tool_registry.register(KubernetesTool())
         self.tool_registry.register(OpenShiftTool())
 
-    async def select_tool(self, question: str) -> str | None:
+    async def select_tool(self, question: str) -> dict | None:
         """
-        Use the local LLM to select the most appropriate tool.
+        Use the local LLM to select the most appropriate tool
+        and extract the parameters required by that tool.
         """
 
         tools = self.tool_registry.get_tool_metadata()
 
         tool_list = "\n".join(
             [
-                f"- {tool['name']}: {tool['description']}"
+                (
+                    f"- {tool['name']}: {tool['description']}\n"
+                    f"  Permission: {tool['permission']}\n"
+                    f"  Read-only: {tool['read_only']}\n"
+                    f"  Parameters: {tool['parameters']}"
+                )
                 for tool in tools
             ]
         )
@@ -46,37 +52,73 @@ class AIOrchestrator:
         prompt = f"""
 You are the tool-selection engine for InfraDB Assist.
 
-Your job is to select exactly ONE tool for the engineer's question.
+Your job is to select exactly ONE tool for the engineer's question
+and extract the parameters explicitly provided in the question.
 
 Available tools:
 
 {tool_list}
 
+Return ONLY valid JSON using this exact structure:
+
+{{
+    "tool": "tool_name",
+    "parameters": {{}}
+}}
+
 Rules:
-1. Return ONLY the exact tool name.
-2. Do not explain your answer.
-3. Do not return any other text.
-4. If no tool is suitable, return NONE.
+1. The tool must be one of the available tools.
+2. Return ONLY valid JSON.
+3. Do not include markdown.
+4. Do not include explanations.
+5. Extract only parameters explicitly provided by the engineer.
+6. Use the exact parameter names defined by the selected tool.
+7. Do not invent parameter values.
+8. If a parameter is not explicitly provided, do not create a value for it.
+9. If no tool is suitable, return:
+   {{"tool": "NONE", "parameters": {{}}}}
 
 Engineer question:
 {question}
 """
 
-        response = await self.llm.generate(prompt)
+        try:
+            result = await self.llm.generate_json(prompt)
 
-        selected_tool = response.strip()
-
-        if selected_tool == "NONE":
+        except ValueError:
             return None
 
-        if self.tool_registry.has(selected_tool):
-            return selected_tool
+        if not isinstance(result, dict):
+            return None
 
-        return None
+        tool_name = result.get("tool")
+        parameters = result.get("parameters", {})
 
-    async def execute_tool(self, tool_name: str) -> dict:
+        if tool_name == "NONE":
+            return None
+
+        if not isinstance(tool_name, str):
+            return None
+
+        if not self.tool_registry.has(tool_name):
+            return None
+
+        if not isinstance(parameters, dict):
+            return None
+
+        return {
+            "tool": tool_name,
+            "parameters": parameters,
+        }
+
+    async def execute_tool(
+        self,
+        tool_name: str,
+        parameters: dict | None = None,
+    ) -> dict:
         """
-        Validate and execute a registered tool.
+        Validate and execute a registered tool
+        using the parameters selected by the LLM.
         """
 
         if not self.tool_registry.has(tool_name):
@@ -88,7 +130,9 @@ Engineer question:
         tool = self.tool_registry.get(tool_name)
 
         try:
-            request = tool.build_request()
+            parameters = parameters or {}
+
+            request = tool.build_request(**parameters)
 
             tool.validate_request(request)
 
@@ -149,9 +193,9 @@ Rules:
         Process an engineer question.
         """
 
-        tool_name = await self.select_tool(question)
+        tool_selection = await self.select_tool(question)
 
-        if not tool_name:
+        if not tool_selection:
             return {
                 "question": question,
                 "status": "no_tool_selected",
@@ -159,12 +203,19 @@ Rules:
                 "available_tools": self.tool_registry.get_tool_metadata(),
             }
 
-        result = await self.execute_tool(tool_name)
+        tool_name = tool_selection["tool"]
+        parameters = tool_selection["parameters"]
+
+        result = await self.execute_tool(
+            tool_name,
+            parameters,
+        )
 
         if result.get("status") == "error":
             return {
                 "question": question,
                 "selected_tool": tool_name,
+                "parameters": parameters,
                 "status": "error",
                 "message": result.get(
                     "message",
@@ -181,6 +232,7 @@ Rules:
         return {
             "question": question,
             "selected_tool": tool_name,
+            "parameters": parameters,
             "status": "success",
             "answer": answer,
             "tool_result": result,

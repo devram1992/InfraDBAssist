@@ -7,9 +7,21 @@ class PostgreSQLTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "database": {
+            "type": "string",
+            "description": "PostgreSQL database name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a PostgreSQL database request.
+        """
+
         return {
-            "database": "POSTGRESDB"
+            "database": kwargs.get("database", "POSTGRESDB")
         }
 
     async def execute(self, request: dict) -> dict:

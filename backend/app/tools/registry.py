@@ -19,12 +19,11 @@ class ToolRegistry:
         return name in self._tools
 
     def get_tool_metadata(self) -> list[dict]:
+        """
+        Return standardized metadata for all registered tools.
+        """
+
         return [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "permission": tool.permission,
-                "read_only": tool.read_only,
-            }
+            tool.get_metadata()
             for tool in self._tools.values()
         ]

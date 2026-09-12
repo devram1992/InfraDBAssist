@@ -7,9 +7,21 @@ class MongoDBTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "database": {
+            "type": "string",
+            "description": "MongoDB database name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a MongoDB database request.
+        """
+
         return {
-            "database": "MONGODB"
+            "database": kwargs.get("database", "MONGODB")
         }
 
     async def execute(self, request: dict) -> dict:

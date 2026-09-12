@@ -6,6 +6,7 @@ class Tool(ABC):
     description: str
     permission: str
     read_only: bool = True
+    parameters: dict = {}
 
     def get_metadata(self) -> dict:
         """
@@ -17,6 +18,7 @@ class Tool(ABC):
             "description": self.description,
             "permission": self.permission,
             "read_only": self.read_only,
+            "parameters": self.parameters,
         }
 
     def validate_request(self, request: dict) -> None:
@@ -43,3 +45,4 @@ class Tool(ABC):
         """
 
         return kwargs
+

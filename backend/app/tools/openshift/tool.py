@@ -7,9 +7,21 @@ class OpenShiftTool(Tool):
     permission = "infrastructure.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "cluster": {
+            "type": "string",
+            "description": "OpenShift cluster name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build an OpenShift cluster request.
+        """
+
         return {
-            "cluster": "OCP-PROD"
+            "cluster": kwargs.get("cluster", "OCP-PROD")
         }
 
     async def execute(self, request: dict) -> dict:

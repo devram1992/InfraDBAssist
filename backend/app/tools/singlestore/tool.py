@@ -7,9 +7,21 @@ class SingleStoreTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "database": {
+            "type": "string",
+            "description": "SingleStore database name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a SingleStore database request.
+        """
+
         return {
-            "database": "SINGLESTOREDB"
+            "database": kwargs.get("database", "SINGLESTOREDB")
         }
 
     async def execute(self, request: dict) -> dict:

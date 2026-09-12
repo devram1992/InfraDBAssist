@@ -7,9 +7,21 @@ class ClouderaTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "cluster": {
+            "type": "string",
+            "description": "Cloudera cluster name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a Cloudera platform request.
+        """
+
         return {
-            "cluster": "CLD-PROD"
+            "cluster": kwargs.get("cluster", "CLD-PROD")
         }
 
     async def execute(self, request: dict) -> dict:

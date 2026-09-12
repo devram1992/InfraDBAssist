@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 
@@ -23,7 +25,7 @@ class OllamaClient:
             "stream": False,
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
@@ -34,3 +36,21 @@ class OllamaClient:
             data = response.json()
 
             return data.get("response", "")
+
+    async def generate_json(self, prompt: str) -> dict:
+        """
+        Send a prompt to the local Ollama model and
+        parse the response as JSON.
+        """
+
+        response = await self.generate(prompt)
+
+        response = response.strip()
+
+        try:
+            return json.loads(response)
+
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"LLM returned invalid JSON: {response}"
+            ) from exc

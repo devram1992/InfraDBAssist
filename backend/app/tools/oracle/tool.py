@@ -7,9 +7,21 @@ class OracleTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "database": {
+            "type": "string",
+            "description": "Oracle database name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build an Oracle database request.
+        """
+
         return {
-            "database": "PRODDB"
+            "database": kwargs.get("database", "PRODDB")
         }
 
     async def execute(self, request: dict) -> dict:
@@ -19,7 +31,6 @@ class OracleTool(Tool):
             "data": {
                 "database": request.get("database", "UNKNOWN"),
                 "status": "OPEN",
-                "message": "Mock Oracle response"
-            }
+                "message": "Mock Oracle response",
+            },
         }
-    

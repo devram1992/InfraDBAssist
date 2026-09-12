@@ -7,9 +7,21 @@ class KubernetesTool(Tool):
     permission = "infrastructure.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "cluster": {
+            "type": "string",
+            "description": "Kubernetes cluster name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a Kubernetes cluster request.
+        """
+
         return {
-            "cluster": "K8S-PROD"
+            "cluster": kwargs.get("cluster", "K8S-PROD")
         }
 
     async def execute(self, request: dict) -> dict:

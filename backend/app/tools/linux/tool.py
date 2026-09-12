@@ -7,9 +7,21 @@ class LinuxTool(Tool):
     permission = "infrastructure.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "server": {
+            "type": "string",
+            "description": "Linux server hostname",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a Linux server request.
+        """
+
         return {
-            "server": "PROD-SERVER"
+            "server": kwargs.get("server", "PROD-SERVER")
         }
 
     async def execute(self, request: dict) -> dict:

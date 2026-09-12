@@ -7,9 +7,21 @@ class MySQLTool(Tool):
     permission = "database.read"
     read_only = True
 
-    def build_request(self) -> dict:
+    parameters = {
+        "database": {
+            "type": "string",
+            "description": "MySQL database name",
+            "required": True,
+        }
+    }
+
+    def build_request(self, **kwargs) -> dict:
+        """
+        Build a MySQL database request.
+        """
+
         return {
-            "database": "MYSQLDB"
+            "database": kwargs.get("database", "MYSQLDB")
         }
 
     async def execute(self, request: dict) -> dict:
