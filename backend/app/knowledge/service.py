@@ -24,6 +24,10 @@ class KnowledgeService:
         """
         Store a knowledge document, split it into chunks,
         generate embeddings, and store the chunks.
+
+        If a document with the same source reference already
+        exists, return the existing document ID instead of
+        creating a duplicate.
         """
 
         if not title or not title.strip():
@@ -31,6 +35,16 @@ class KnowledgeService:
 
         if not content or not content.strip():
             raise ValueError("Document content cannot be empty.")
+
+        if source_reference:
+            existing_document = (
+                self.repository.get_document_by_source_reference(
+                    source_reference
+                )
+            )
+
+            if existing_document:
+                return existing_document["id"]
 
         document_id = self.repository.create_document(
             title=title,
@@ -72,7 +86,10 @@ class KnowledgeService:
 
         return document_id
 
-    async def ingest_file(self, file_path: str) -> int:
+    async def ingest_file(
+        self,
+        file_path: str,
+    ) -> int:
         """
         Load a local internal knowledge document and ingest it
         into the knowledge base.

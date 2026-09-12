@@ -13,10 +13,6 @@ class KnowledgeRepository:
         source_reference: str | None = None,
         metadata: dict | None = None,
     ) -> int:
-        """
-        Create a knowledge document and return its ID.
-        """
-
         metadata = json.dumps(metadata or {})
 
         query = """
@@ -27,13 +23,7 @@ class KnowledgeRepository:
                 source_reference,
                 metadata
             )
-            VALUES (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s
-            )
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id;
         """
 
@@ -60,10 +50,6 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> None:
-        """
-        Delete a knowledge document by ID.
-        """
-
         query = """
             DELETE FROM knowledge_documents
             WHERE id = %s;
@@ -88,10 +74,6 @@ class KnowledgeRepository:
         document_id: int,
         embedding: list[float],
     ) -> None:
-        """
-        Store the embedding for a knowledge document.
-        """
-
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -124,10 +106,6 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> dict | None:
-        """
-        Retrieve a knowledge document by ID.
-        """
-
         query = """
             SELECT
                 id,
@@ -165,11 +143,49 @@ class KnowledgeRepository:
                     "updated_at": row[7],
                 }
 
-    def list_documents(self) -> list[dict]:
-        """
-        Return all knowledge documents.
+    def get_document_by_source_reference(
+        self,
+        source_reference: str,
+    ) -> dict | None:
+        query = """
+            SELECT
+                id,
+                title,
+                content,
+                source_type,
+                source_reference,
+                metadata,
+                created_at,
+                updated_at
+            FROM knowledge_documents
+            WHERE source_reference = %s
+            LIMIT 1;
         """
 
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (source_reference,),
+                )
+
+                row = cursor.fetchone()
+
+                if row is None:
+                    return None
+
+                return {
+                    "id": row[0],
+                    "title": row[1],
+                    "content": row[2],
+                    "source_type": row[3],
+                    "source_reference": row[4],
+                    "metadata": row[5],
+                    "created_at": row[6],
+                    "updated_at": row[7],
+                }
+
+    def list_documents(self) -> list[dict]:
         query = """
             SELECT
                 id,
@@ -209,10 +225,6 @@ class KnowledgeRepository:
         embedding: list[float],
         limit: int = 5,
     ) -> list[dict]:
-        """
-        Search knowledge documents using vector similarity.
-        """
-
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -271,10 +283,6 @@ class KnowledgeRepository:
         content: str,
         metadata: dict | None = None,
     ) -> int:
-        """
-        Create a knowledge chunk and return its ID.
-        """
-
         if chunk_index < 0:
             raise ValueError(
                 "Chunk index cannot be negative."
@@ -294,12 +302,7 @@ class KnowledgeRepository:
                 content,
                 metadata
             )
-            VALUES (
-                %s,
-                %s,
-                %s,
-                %s
-            )
+            VALUES (%s, %s, %s, %s)
             RETURNING id;
         """
 
@@ -326,10 +329,6 @@ class KnowledgeRepository:
         chunk_id: int,
         embedding: list[float],
     ) -> None:
-        """
-        Store the embedding for a knowledge chunk.
-        """
-
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -362,10 +361,6 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> None:
-        """
-        Delete all chunks belonging to a document.
-        """
-
         query = """
             DELETE FROM knowledge_chunks
             WHERE document_id = %s;
@@ -385,10 +380,6 @@ class KnowledgeRepository:
         embedding: list[float],
         limit: int = 5,
     ) -> list[dict]:
-        """
-        Search knowledge chunks using vector similarity.
-        """
-
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -445,4 +436,3 @@ class KnowledgeRepository:
                     }
                     for row in rows
                 ]
-
