@@ -82,7 +82,11 @@ Rules:
 9. The selected tool may apply its own safe default for omitted parameters.
 10. Do not select a tool only because a parameter is missing if the tool
     can safely handle the missing parameter using its own default.
-11. If no tool is suitable, return:
+11. If the question is asking for a procedure, explanation, SOP,
+    runbook guidance, troubleshooting steps, or other internal knowledge
+    and does not require current system state, return:
+    {{"tool": "NONE", "parameters": {{}}}}
+12. If no tool is suitable, return:
     {{"tool": "NONE", "parameters": {{}}}}
 
 Engineer question:
@@ -245,37 +249,37 @@ Rules:
     async def process(self, question: str) -> dict:
         """
         Process an engineer question using tools and internal knowledge.
+
+        A tool is optional. Knowledge-only questions can be answered
+        using the internal knowledge base without executing a tool.
         """
 
         tool_selection = await self.select_tool(question)
 
-        if not tool_selection:
-            return {
-                "question": question,
-                "status": "no_tool_selected",
-                "message": "No suitable tool found.",
-                "available_tools": self.tool_registry.get_tool_metadata(),
-            }
+        tool_name = None
+        parameters = {}
+        tool_result = None
 
-        tool_name = tool_selection["tool"]
-        parameters = tool_selection["parameters"]
+        if tool_selection:
+            tool_name = tool_selection["tool"]
+            parameters = tool_selection["parameters"]
 
-        result = await self.execute_tool(
-            tool_name,
-            parameters,
-        )
+            tool_result = await self.execute_tool(
+                tool_name,
+                parameters,
+            )
 
-        if result.get("status") == "error":
-            return {
-                "question": question,
-                "selected_tool": tool_name,
-                "parameters": parameters,
-                "status": "error",
-                "message": result.get(
-                    "message",
-                    "Tool execution failed.",
-                ),
-            }
+            if tool_result.get("status") == "error":
+                return {
+                    "question": question,
+                    "selected_tool": tool_name,
+                    "parameters": parameters,
+                    "status": "error",
+                    "message": tool_result.get(
+                        "message",
+                        "Tool execution failed.",
+                    ),
+                }
 
         knowledge_results = await self.search_knowledge(
             question=question,
@@ -284,8 +288,8 @@ Rules:
 
         answer = await self.generate_answer(
             question=question,
-            tool_name=tool_name,
-            tool_result=result,
+            tool_name=tool_name or "knowledge_only",
+            tool_result=tool_result or {},
             knowledge_results=knowledge_results,
         )
 
@@ -295,6 +299,6 @@ Rules:
             "parameters": parameters,
             "status": "success",
             "answer": answer,
-            "tool_result": result,
+            "tool_result": tool_result,
             "knowledge_results": knowledge_results,
         }
