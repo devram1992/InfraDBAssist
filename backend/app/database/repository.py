@@ -13,6 +13,7 @@ class KnowledgeRepository:
         source_reference: str | None = None,
         metadata: dict | None = None,
     ) -> int:
+
         metadata = json.dumps(metadata or {})
 
         query = """
@@ -46,6 +47,91 @@ class KnowledgeRepository:
 
                 return document_id
 
+    def create_document_with_chunks(
+        self,
+        title: str,
+        content: str,
+        source_type: str,
+        content_hash: str,
+        chunks: list[dict],
+        source_reference: str | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """
+        Atomically create a knowledge document and all of its chunks.
+
+        The document, content hash, and chunks are persisted in a
+        single PostgreSQL transaction. If any operation fails,
+        the entire transaction is rolled back.
+        """
+
+        metadata_json = json.dumps(metadata or {})
+
+        document_query = """
+            INSERT INTO knowledge_documents (
+                title,
+                content,
+                source_type,
+                source_reference,
+                content_hash,
+                metadata
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """
+
+        insert_chunk_query = """
+            INSERT INTO knowledge_chunks (
+                document_id,
+                chunk_index,
+                content,
+                metadata,
+                embedding
+            )
+            VALUES (%s, %s, %s, %s, %s);
+        """
+
+        with get_connection() as conn:
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        document_query,
+                        (
+                            title,
+                            content,
+                            source_type,
+                            source_reference,
+                            content_hash,
+                            metadata_json,
+                        ),
+                    )
+
+                    document_id = cursor.fetchone()[0]
+
+                    for chunk in chunks:
+                        chunk_metadata = json.dumps(
+                            chunk.get("metadata") or {}
+                        )
+
+                        cursor.execute(
+                            insert_chunk_query,
+                            (
+                                document_id,
+                                chunk["chunk_index"],
+                                chunk["content"],
+                                chunk_metadata,
+                                chunk["embedding"],
+                            ),
+                        )
+
+                conn.commit()
+
+                return document_id
+
+            except Exception:
+                conn.rollback()
+                raise
+
     def update_document(
         self,
         document_id: int,
@@ -55,6 +141,7 @@ class KnowledgeRepository:
         metadata: dict | None = None,
         content_hash: str | None = None,
     ) -> None:
+
         metadata = json.dumps(metadata or {})
 
         query = """
@@ -140,7 +227,6 @@ class KnowledgeRepository:
         with get_connection() as conn:
             try:
                 with conn.cursor() as cursor:
-
                     cursor.execute(
                         document_query,
                         (
@@ -164,7 +250,6 @@ class KnowledgeRepository:
                     )
 
                     for chunk in chunks:
-
                         chunk_metadata = json.dumps(
                             chunk.get("metadata") or {}
                         )
@@ -217,14 +302,12 @@ class KnowledgeRepository:
         with get_connection() as conn:
             try:
                 with conn.cursor() as cursor:
-
                     cursor.execute(
                         delete_chunks_query,
                         (document_id,),
                     )
 
                     for chunk in chunks:
-
                         chunk_metadata = json.dumps(
                             chunk.get("metadata") or {}
                         )
@@ -251,6 +334,7 @@ class KnowledgeRepository:
         document_id: int,
         content_hash: str,
     ) -> None:
+
         if len(content_hash) != 64:
             raise ValueError(
                 "Content hash must be a 64-character SHA-256 hash."
@@ -285,6 +369,7 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> None:
+
         query = """
             DELETE FROM knowledge_documents
             WHERE id = %s;
@@ -309,6 +394,7 @@ class KnowledgeRepository:
         document_id: int,
         embedding: list[float],
     ) -> None:
+
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -341,6 +427,7 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> dict | None:
+
         query = """
             SELECT
                 id,
@@ -384,6 +471,7 @@ class KnowledgeRepository:
         self,
         source_reference: str,
     ) -> dict | None:
+
         query = """
             SELECT
                 id,
@@ -427,6 +515,7 @@ class KnowledgeRepository:
     def list_documents(
         self,
     ) -> list[dict]:
+
         query = """
             SELECT
                 id,
@@ -468,6 +557,7 @@ class KnowledgeRepository:
         embedding: list[float],
         limit: int = 5,
     ) -> list[dict]:
+
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -526,6 +616,7 @@ class KnowledgeRepository:
         content: str,
         metadata: dict | None = None,
     ) -> int:
+
         if chunk_index < 0:
             raise ValueError(
                 "Chunk index cannot be negative."
@@ -575,6 +666,7 @@ class KnowledgeRepository:
         embedding: list[float],
         metadata: dict | None = None,
     ) -> int:
+
         if chunk_index < 0:
             raise ValueError(
                 "Chunk index cannot be negative."
@@ -628,6 +720,7 @@ class KnowledgeRepository:
         chunk_id: int,
         embedding: list[float],
     ) -> None:
+
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."
@@ -660,6 +753,7 @@ class KnowledgeRepository:
         self,
         document_id: int,
     ) -> None:
+
         query = """
             DELETE FROM knowledge_chunks
             WHERE document_id = %s;
@@ -679,6 +773,7 @@ class KnowledgeRepository:
         embedding: list[float],
         limit: int = 5,
     ) -> list[dict]:
+
         if len(embedding) != 1024:
             raise ValueError(
                 f"Expected 1024 dimensions, received {len(embedding)}."

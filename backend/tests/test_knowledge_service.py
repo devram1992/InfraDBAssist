@@ -1,33 +1,41 @@
+import hashlib
+
 import pytest
 
 from backend.app.knowledge.service import KnowledgeService
 
 
 def test_calculate_content_hash():
-    content = "Database backup verification"
+    service = KnowledgeService()
 
-    result = KnowledgeService.calculate_content_hash(
-        content
-    )
+    content = "Database backup verification"
+    result = service.calculate_content_hash(content)
 
     assert len(result) == 64
     assert isinstance(result, str)
+    assert result == hashlib.sha256(
+        content.encode("utf-8")
+    ).hexdigest()
 
 
 def test_calculate_content_hash_rejects_empty_content():
+    service = KnowledgeService()
+
     with pytest.raises(
         ValueError,
         match="Document content cannot be empty.",
     ):
-        KnowledgeService.calculate_content_hash("")
+        service.calculate_content_hash("")
 
 
 def test_calculate_content_hash_rejects_whitespace_content():
+    service = KnowledgeService()
+
     with pytest.raises(
         ValueError,
         match="Document content cannot be empty.",
     ):
-        KnowledgeService.calculate_content_hash("   ")
+        service.calculate_content_hash("   ")
 
 
 @pytest.mark.asyncio
@@ -42,6 +50,7 @@ async def test_ingest_document_rejects_empty_title():
             title="",
             content="Database backup verification",
             source_type="sop",
+            source_reference="knowledge/sop/database_backup.md",
         )
 
 
@@ -57,6 +66,7 @@ async def test_ingest_document_rejects_empty_content():
             title="Database Backup",
             content="",
             source_type="sop",
+            source_reference="knowledge/sop/database_backup.md",
         )
 
 
@@ -67,27 +77,17 @@ async def test_ingest_document_skips_unchanged_document(
     service = KnowledgeService()
 
     content = "Database backup verification"
+
     content_hash = service.calculate_content_hash(
         content
     )
 
     existing_document = {
         "id": 123,
-        "title": "Database Backup",
-        "content": content,
-        "source_type": "sop",
-        "source_reference": "test/database_backup.md",
-        "metadata": {},
         "content_hash": content_hash,
     }
 
-    def mock_get_document_by_source_reference(
-        source_reference,
-    ):
-        assert source_reference == "test/database_backup.md"
-        return existing_document
-
-    async def fail_if_embedding_called(text):
+    async def fail_embed(text):
         raise AssertionError(
             "Embedding should not be generated for unchanged content."
         )
@@ -95,23 +95,23 @@ async def test_ingest_document_skips_unchanged_document(
     monkeypatch.setattr(
         service.repository,
         "get_document_by_source_reference",
-        mock_get_document_by_source_reference,
+        lambda source_reference: existing_document,
     )
 
     monkeypatch.setattr(
         service.embedding_client,
         "embed",
-        fail_if_embedding_called,
+        fail_embed,
     )
 
-    document_id = await service.ingest_document(
+    result = await service.ingest_document(
         title="Database Backup",
         content=content,
         source_type="sop",
-        source_reference="test/database_backup.md",
+        source_reference="knowledge/sop/database_backup.md",
     )
 
-    assert document_id == 123
+    assert result == 123
 
 
 @pytest.mark.asyncio
@@ -120,32 +120,17 @@ async def test_ingest_document_updates_changed_document(
 ):
     service = KnowledgeService()
 
-    old_content = "Database backup verification"
-    new_content = (
-        "Database backup verification and "
-        "archive log validation"
-    )
-
-    old_hash = service.calculate_content_hash(
-        old_content
-    )
+    old_content = "Old database backup procedure."
+    new_content = "New database backup procedure."
 
     existing_document = {
         "id": 456,
-        "title": "Database Backup",
-        "content": old_content,
-        "source_type": "sop",
-        "source_reference": "test/database_backup.md",
-        "metadata": {},
-        "content_hash": old_hash,
+        "content_hash": service.calculate_content_hash(
+            old_content
+        ),
     }
 
     captured = {}
-
-    def mock_get_document_by_source_reference(
-        source_reference,
-    ):
-        return existing_document
 
     async def mock_embed(text):
         captured["embedded_content"] = text
@@ -157,7 +142,7 @@ async def test_ingest_document_updates_changed_document(
     monkeypatch.setattr(
         service.repository,
         "get_document_by_source_reference",
-        mock_get_document_by_source_reference,
+        lambda source_reference: existing_document,
     )
 
     monkeypatch.setattr(
@@ -172,64 +157,43 @@ async def test_ingest_document_updates_changed_document(
         mock_replace_document,
     )
 
-    document_id = await service.ingest_document(
+    result = await service.ingest_document(
         title="Database Backup",
         content=new_content,
         source_type="sop",
-        source_reference="test/database_backup.md",
+        source_reference="knowledge/sop/database_backup.md",
     )
 
-    assert document_id == 456
+    assert result == 456
 
     assert captured["embedded_content"] == new_content
 
     replace_request = captured["replace_request"]
 
     assert replace_request["document_id"] == 456
+    assert replace_request["title"] == "Database Backup"
     assert replace_request["content"] == new_content
     assert replace_request["source_type"] == "sop"
-    assert replace_request["content_hash"] == (
-        service.calculate_content_hash(new_content)
-    )
 
-    assert len(replace_request["chunks"]) == 1
-    assert replace_request["chunks"][0]["content"] == new_content
-    assert len(
-        replace_request["chunks"][0]["embedding"]
-    ) == 1024
+    assert replace_request["content_hash"] == (
+        service.calculate_content_hash(
+            new_content
+        )
+    )
 
 
 @pytest.mark.asyncio
-async def test_ingest_document_cleans_up_new_document_on_failure(
+async def test_ingest_document_uses_atomic_creation_for_new_document(
     monkeypatch,
 ):
     service = KnowledgeService()
 
     created_document_id = 789
+    captured_request = {}
 
-    def mock_create_document(**kwargs):
+    def mock_create_document_with_chunks(**kwargs):
+        captured_request.update(kwargs)
         return created_document_id
-
-    def mock_update_content_hash(
-        document_id,
-        content_hash,
-    ):
-        assert document_id == created_document_id
-
-    def fail_replace_document_chunks(
-        document_id,
-        chunks,
-    ):
-        raise RuntimeError(
-            "Failed to insert knowledge chunks."
-        )
-
-    deleted_document_ids = []
-
-    def mock_delete_document(document_id):
-        deleted_document_ids.append(
-            document_id
-        )
 
     async def mock_embed(text):
         return [0.1] * 1024
@@ -242,26 +206,8 @@ async def test_ingest_document_cleans_up_new_document_on_failure(
 
     monkeypatch.setattr(
         service.repository,
-        "create_document",
-        mock_create_document,
-    )
-
-    monkeypatch.setattr(
-        service.repository,
-        "update_content_hash",
-        mock_update_content_hash,
-    )
-
-    monkeypatch.setattr(
-        service.repository,
-        "replace_document_chunks",
-        fail_replace_document_chunks,
-    )
-
-    monkeypatch.setattr(
-        service.repository,
-        "delete_document",
-        mock_delete_document,
+        "create_document_with_chunks",
+        mock_create_document_with_chunks,
     )
 
     monkeypatch.setattr(
@@ -270,17 +216,46 @@ async def test_ingest_document_cleans_up_new_document_on_failure(
         mock_embed,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="Failed to insert knowledge chunks.",
-    ):
-        await service.ingest_document(
-            title="Database Backup",
-            content="Database backup verification",
-            source_type="sop",
-            source_reference="test/database_backup.md",
-        )
+    result = await service.ingest_document(
+        title="Database Backup",
+        content="Database backup verification procedure.",
+        source_type="sop",
+        source_reference="knowledge/sop/database_backup.md",
+        metadata={"category": "backup"},
+    )
 
-    assert deleted_document_ids == [
-        created_document_id
-    ]
+    assert result == created_document_id
+
+    assert captured_request["title"] == "Database Backup"
+
+    assert captured_request["content"] == (
+        "Database backup verification procedure."
+    )
+
+    assert captured_request["source_type"] == "sop"
+
+    assert captured_request["source_reference"] == (
+        "knowledge/sop/database_backup.md"
+    )
+
+    assert captured_request["content_hash"] == (
+        service.calculate_content_hash(
+            "Database backup verification procedure."
+        )
+    )
+
+    assert captured_request["metadata"] == {
+        "category": "backup"
+    }
+
+    assert len(captured_request["chunks"]) == 1
+
+    assert captured_request["chunks"][0]["chunk_index"] == 0
+
+    assert captured_request["chunks"][0]["content"] == (
+        "Database backup verification procedure."
+    )
+
+    assert len(
+        captured_request["chunks"][0]["embedding"]
+    ) == 1024

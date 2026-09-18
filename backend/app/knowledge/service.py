@@ -44,7 +44,7 @@ class KnowledgeService:
         Behavior:
 
         - New document:
-          Create document, chunks, and embeddings.
+          Create document, chunks, and embeddings atomically.
 
         - Existing document with unchanged content:
           Skip ingestion and return existing document ID.
@@ -91,7 +91,6 @@ class KnowledgeService:
         chunk_data = []
 
         for chunk_index, chunk_content in enumerate(chunks):
-
             embedding = await self.embedding_client.embed(
                 chunk_content
             )
@@ -107,37 +106,15 @@ class KnowledgeService:
 
         # New document.
         if existing_document is None:
-
-            document_id = self.repository.create_document(
+            return self.repository.create_document_with_chunks(
                 title=title,
                 content=content,
                 source_type=source_type,
+                content_hash=content_hash,
+                chunks=chunk_data,
                 source_reference=source_reference,
                 metadata=metadata,
             )
-
-            try:
-                self.repository.update_content_hash(
-                    document_id=document_id,
-                    content_hash=content_hash,
-                )
-
-                self.repository.replace_document_chunks(
-                    document_id=document_id,
-                    chunks=chunk_data,
-                )
-
-            except Exception:
-                try:
-                    self.repository.delete_document(
-                        document_id
-                    )
-                except Exception:
-                    pass
-
-                raise
-
-            return document_id
 
         # Existing document with changed content.
         document_id = existing_document["id"]

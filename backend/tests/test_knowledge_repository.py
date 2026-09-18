@@ -204,3 +204,41 @@ def test_search_similar_chunks_rejects_invalid_limit():
             embedding=embedding,
             limit=0,
         )
+
+
+def test_create_document_with_chunks_rolls_back_on_chunk_failure():
+    repository = KnowledgeRepository()
+
+    source_reference = "test/atomic-create-rollback.md"
+
+    chunks = [
+        {
+            "chunk_index": 0,
+            "content": "Valid chunk",
+            "embedding": [0.1] * 1024,
+            "metadata": {},
+        },
+        {
+            "chunk_index": 0,
+            "content": "Duplicate chunk index",
+            "embedding": [0.2] * 1024,
+            "metadata": {},
+        },
+    ]
+
+    with pytest.raises(Exception):
+        repository.create_document_with_chunks(
+            title="Atomic Test Document",
+            content="Atomic test content",
+            source_type="sop",
+            content_hash="a" * 64,
+            chunks=chunks,
+            source_reference=source_reference,
+            metadata={},
+        )
+
+    document = repository.get_document_by_source_reference(
+        source_reference
+    )
+
+    assert document is None
