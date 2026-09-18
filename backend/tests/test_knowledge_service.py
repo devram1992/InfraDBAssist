@@ -259,3 +259,54 @@ async def test_ingest_document_uses_atomic_creation_for_new_document(
     assert len(
         captured_request["chunks"][0]["embedding"]
     ) == 1024
+
+
+@pytest.mark.asyncio
+async def test_ingest_file_loads_document_and_ingests_it(
+    monkeypatch,
+    tmp_path,
+):
+    service = KnowledgeService()
+
+    file_path = tmp_path / "database_backup.md"
+
+    file_path.write_text(
+        "# Database Backup\n\nVerify the latest backup.",
+        encoding="utf-8",
+    )
+
+    captured_request = {}
+    created_document_id = 321
+
+    async def mock_ingest_document(**kwargs):
+        captured_request.update(kwargs)
+        return created_document_id
+
+    monkeypatch.setattr(
+        service,
+        "ingest_document",
+        mock_ingest_document,
+    )
+
+    result = await service.ingest_file(
+        str(file_path)
+    )
+
+    assert result == created_document_id
+
+    assert captured_request["title"] == "database_backup"
+
+    assert captured_request["content"] == (
+        "# Database Backup\n\nVerify the latest backup."
+    )
+
+    assert captured_request["source_type"] == "internal"
+
+    assert captured_request["source_reference"] == str(
+        file_path
+    )
+
+    assert captured_request["metadata"] == {
+        "file_name": "database_backup.md",
+        "file_extension": ".md",
+    }
