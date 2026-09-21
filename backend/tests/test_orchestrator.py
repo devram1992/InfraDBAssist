@@ -102,8 +102,12 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
             {
                 "title": "oracle_performance",
                 "source_type": "runbook",
-                "similarity": 0.90,
-                "content": "Review active sessions and wait events.",
+                "similarity": 0.82,
+                "content": (
+                    "Check database load, active sessions, "
+                    "wait events, CPU utilization, memory usage, "
+                    "and long-running SQL statements."
+                ),
             }
         ]
 
@@ -115,6 +119,7 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     ):
         assert tool_name == "oracle_database"
         assert tool_result["database"] == "PRODDB"
+        assert tool_result["state"] == "OPEN"
         assert len(knowledge_results) == 1
 
         return "PRODDB is OPEN."
@@ -144,7 +149,7 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     )
 
     result = await orchestrator.process(
-        "Check Oracle database PRODDB performance"
+        "Check Oracle database PRODDB performance."
     )
 
     assert result["status"] == "success"
@@ -152,14 +157,14 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     assert result["parameters"] == {
         "database": "PRODDB",
     }
-
     assert result["tool_result"]["database"] == "PRODDB"
+    assert result["tool_result"]["state"] == "OPEN"
     assert len(result["knowledge_results"]) == 1
     assert result["answer"] == "PRODDB is OPEN."
 
 
 @pytest.mark.asyncio
-async def test_select_tool_returns_valid_tool_and_parameters(
+async def test_select_tool_accepts_valid_tool_and_parameters(
     monkeypatch,
 ):
     orchestrator = AIOrchestrator()
@@ -179,7 +184,7 @@ async def test_select_tool_returns_valid_tool_and_parameters(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB"
+        "Check Oracle database PRODDB."
     )
 
     assert result == {
@@ -234,7 +239,7 @@ async def test_select_tool_rejects_unknown_tool(
     )
 
     result = await orchestrator.select_tool(
-        "Check something"
+        "Check something."
     )
 
     assert result is None
@@ -249,7 +254,7 @@ async def test_select_tool_rejects_invalid_parameters(
     async def mock_generate_json(prompt):
         return {
             "tool": "oracle_database",
-            "parameters": "invalid",
+            "parameters": "PRODDB",
         }
 
     monkeypatch.setattr(
@@ -259,7 +264,7 @@ async def test_select_tool_rejects_invalid_parameters(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database"
+        "Check Oracle database PRODDB."
     )
 
     assert result is None
@@ -281,14 +286,14 @@ async def test_select_tool_handles_invalid_json(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database"
+        "Check Oracle database PRODDB."
     )
 
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_select_tool_rejects_non_dictionary_response(
+async def test_select_tool_rejects_non_dict_response(
     monkeypatch,
 ):
     orchestrator = AIOrchestrator()
@@ -308,7 +313,29 @@ async def test_select_tool_rejects_non_dictionary_response(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database"
+        "Check Oracle database PRODDB."
     )
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_empty_question():
+    orchestrator = AIOrchestrator()
+
+    with pytest.raises(
+        ValueError,
+        match="Question must not be empty.",
+    ):
+        await orchestrator.select_tool("")
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_whitespace_question():
+    orchestrator = AIOrchestrator()
+
+    with pytest.raises(
+        ValueError,
+        match="Question must not be empty.",
+    ):
+        await orchestrator.select_tool("   ")

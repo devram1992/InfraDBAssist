@@ -1,6 +1,9 @@
 from backend.app.tools.registry import ToolRegistry
+
 from backend.app.ai.ollamaclient import OllamaClient
+
 from backend.app.rag.service import RAGService
+
 from backend.app.tools.oracle.tool import OracleTool
 from backend.app.tools.linux.tool import LinuxTool
 from backend.app.tools.postgres.tool import PostgreSQLTool
@@ -16,7 +19,9 @@ class AIOrchestrator:
 
     def __init__(self):
         self.tool_registry = ToolRegistry()
+
         self.llm = OllamaClient()
+
         self.rag = RAGService()
 
         # Register available tools
@@ -35,6 +40,9 @@ class AIOrchestrator:
         Use the local LLM to select the most appropriate tool
         and extract the parameters required by that tool.
         """
+
+        if not question or not question.strip():
+            raise ValueError("Question must not be empty.")
 
         tools = self.tool_registry.get_tool_metadata()
 
@@ -70,22 +78,25 @@ Return ONLY valid JSON using this exact structure:
 Rules:
 
 1. The tool must be one of the available tools.
+
 2. Return ONLY valid JSON.
+
 3. Do not include markdown.
+
 4. Do not include explanations.
+
 5. Extract parameters explicitly provided by the engineer.
+
 6. Use the exact parameter names defined by the selected tool.
+
 7. Do not invent parameter values.
+
 8. If a parameter is not explicitly provided, omit it.
+
 9. The selected tool may apply its own safe default for omitted parameters.
+
 10. Do not select a tool only because a parameter is missing if the tool
     can safely handle the missing parameter using its own default.
-11. If the question is asking for a procedure, explanation, SOP,
-    runbook guidance, troubleshooting steps, or other internal knowledge
-    and does not require current system state, return:
-    {{"tool": "NONE", "parameters": {{}}}}
-12. If no tool is suitable, return:
-    {{"tool": "NONE", "parameters": {{}}}}
 
 Engineer question:
 
@@ -94,7 +105,6 @@ Engineer question:
 
         try:
             result = await self.llm.generate_json(prompt)
-
         except ValueError:
             return None
 
@@ -127,37 +137,44 @@ Engineer question:
         parameters: dict | None = None,
     ) -> dict:
         """
-        Validate and execute a registered tool
-        using the parameters selected by the LLM.
+        Execute a registered tool using the supplied parameters.
         """
-
-        if not self.tool_registry.has(tool_name):
-            return {
-                "status": "error",
-                "message": f"Tool not registered: {tool_name}",
-            }
 
         tool = self.tool_registry.get(tool_name)
 
+        if tool is None:
+            return {
+                "status": "error",
+                "error": f"Unknown tool: {tool_name}",
+            }
+
+        if parameters is None:
+            parameters = {}
+
+        if not isinstance(parameters, dict):
+            return {
+                "status": "error",
+                "error": "Tool parameters must be a dictionary.",
+            }
+
         try:
-            parameters = parameters or {}
-
             request = tool.build_request(**parameters)
-
             tool.validate_request(request)
 
-            return await tool.execute(request)
+            result = await tool.execute(request)
+
+            return result
 
         except ValueError as exc:
             return {
                 "status": "error",
-                "message": f"Tool request validation failed: {exc}",
+                "error": str(exc),
             }
 
         except Exception as exc:
             return {
                 "status": "error",
-                "message": f"Tool execution failed: {exc}",
+                "error": f"Tool execution failed: {exc}",
             }
 
     async def search_knowledge(
@@ -166,7 +183,7 @@ Engineer question:
         limit: int = 5,
     ) -> list[dict]:
         """
-        Search the internal knowledge base using semantic similarity.
+        Search internal knowledge using the RAG service.
         """
 
         try:
@@ -186,8 +203,8 @@ Engineer question:
         knowledge_results: list[dict],
     ) -> str:
         """
-        Use the local LLM to generate an engineer-friendly answer
-        using both tool results and internal knowledge.
+        Generate a grounded answer using only tool results
+        and relevant internal knowledge.
         """
 
         knowledge_context = "\n\n".join(
@@ -258,64 +275,72 @@ Rules:
 9. Keep the response concise and technical.
 
 10. Do not mention internal implementation details such as
-    embeddings, vector databases, RAG, or prompt processing.
+    embeddings, vector databases, RAG, prompts, or orchestration.
+
+Answer:
 """
 
         return await self.llm.generate(prompt)
 
     async def process(self, question: str) -> dict:
         """
-        Process an engineer question using tools and internal knowledge.
+        Complete orchestration flow:
 
-        A tool is optional. Knowledge-only questions can be answered
-        using the internal knowledge base without executing a tool.
+        Question
+            ↓
+        Tool Selection
+            ↓
+        Tool Execution
+            ↓
+        Knowledge Search
+            ↓
+        Grounded Answer
         """
 
-        tool_selection = await self.select_tool(question)
+        selected = await self.select_tool(question)
 
         tool_name = None
         parameters = {}
         tool_result = None
 
-        if tool_selection:
-            tool_name = tool_selection["tool"]
-            parameters = tool_selection["parameters"]
+        if selected:
+            tool_name = selected["tool"]
+            parameters = selected["parameters"]
 
             tool_result = await self.execute_tool(
-                tool_name,
-                parameters,
+                tool_name=tool_name,
+                parameters=parameters,
             )
-
-            if tool_result.get("status") == "error":
-                return {
-                    "question": question,
-                    "selected_tool": tool_name,
-                    "parameters": parameters,
-                    "status": "error",
-                    "message": tool_result.get(
-                        "message",
-                        "Tool execution failed.",
-                    ),
-                }
 
         knowledge_results = await self.search_knowledge(
             question=question,
-            limit=5,
+        )
+
+        answer_tool_name = (
+            tool_name
+            if tool_name
+            else "knowledge_only"
+        )
+
+        answer_tool_result = (
+            tool_result
+            if tool_result is not None
+            else {}
         )
 
         answer = await self.generate_answer(
             question=question,
-            tool_name=tool_name or "knowledge_only",
-            tool_result=tool_result or {},
+            tool_name=answer_tool_name,
+            tool_result=answer_tool_result,
             knowledge_results=knowledge_results,
         )
 
         return {
+            "status": "success",
             "question": question,
             "selected_tool": tool_name,
             "parameters": parameters,
-            "status": "success",
-            "answer": answer,
             "tool_result": tool_result,
             "knowledge_results": knowledge_results,
+            "answer": answer,
         }
