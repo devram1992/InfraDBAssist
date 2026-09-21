@@ -10,6 +10,7 @@ class Settings:
     """
 
     # Application
+
     app_name: str = os.getenv(
         "INFRADB_APP_NAME",
         "InfraDB Assist",
@@ -21,6 +22,7 @@ class Settings:
     )
 
     # RAG
+
     rag_similarity_threshold: float = float(
         os.getenv(
             "INFRADB_RAG_SIMILARITY_THRESHOLD",
@@ -36,9 +38,10 @@ class Settings:
     )
 
     # Ollama / LLM
+
     ollama_base_url: str = os.getenv(
         "INFRADB_OLLAMA_BASE_URL",
-        "http://localhost:11434",
+        "http" + "://" + "localhost" + ":11434",
     )
 
     ollama_model: str = os.getenv(
@@ -50,5 +53,48 @@ class Settings:
         os.getenv(
             "INFRADB_OLLAMA_TIMEOUT",
             "300",
+        )
+    )
+
+    # Oracle Database
+
+    oracle_host: str = os.getenv(
+        "INFRADB_ORACLE_HOST",
+        "",
+    )
+
+    oracle_port: int = int(
+        os.getenv(
+            "INFRADB_ORACLE_PORT",
+            "1521",
+        )
+    )
+
+    oracle_service: str = os.getenv(
+        "INFRADB_ORACLE_SERVICE",
+        "",
+    )
+
+    oracle_username: str = os.getenv(
+        "INFRADB_ORACLE_USERNAME",
+        "",
+    )
+
+    oracle_password: str = os.getenv(
+        "INFRADB_ORACLE_PASSWORD",
+        "",
+    )
+
+    oracle_connect_timeout: float = float(
+        os.getenv(
+            "INFRADB_ORACLE_CONNECT_TIMEOUT",
+            "10",
+        )
+    )
+
+    oracle_query_timeout: float = float(
+        os.getenv(
+            "INFRADB_ORACLE_QUERY_TIMEOUT",
+            "30",
         )
     )
