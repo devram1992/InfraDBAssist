@@ -1,8 +1,6 @@
 from backend.app.tools.registry import ToolRegistry
-
 from backend.app.ai.ollamaclient import OllamaClient
 from backend.app.rag.service import RAGService
-
 from backend.app.tools.oracle.tool import OracleTool
 from backend.app.tools.linux.tool import LinuxTool
 from backend.app.tools.postgres.tool import PostgreSQLTool
@@ -231,17 +229,36 @@ Relevant internal knowledge:
 
 Rules:
 
-1. Do not invent information.
-2. Use the tool result as the primary source for current system state.
-3. Use internal knowledge to provide troubleshooting guidance,
-   context, procedures, and recommendations.
-4. Clearly distinguish current findings from general guidance.
-5. Do not treat internal knowledge as proof of current system state.
-6. If the available information is insufficient, clearly state
-   what additional information is required.
-7. Keep the response concise and technical.
-8. Do not mention internal implementation details such as
-   embeddings, vector databases, or RAG.
+1. Answer using ONLY the information contained in the
+   Tool result and Relevant internal knowledge sections.
+
+2. Do not add technical facts, commands, views, metrics,
+   procedures, examples, or recommendations from your
+   general model knowledge.
+
+3. If a technical detail is not present in the supplied
+   evidence, do not introduce it.
+
+4. Use the tool result as the primary source for current
+   system state.
+
+5. Use internal knowledge only for documented procedures,
+   troubleshooting guidance, context, and recommendations.
+
+6. Clearly distinguish current system findings from
+   documented internal guidance.
+
+7. If the available evidence does not contain the answer,
+   explicitly say that the available internal knowledge
+   does not provide that information.
+
+8. Do not expand, reinterpret, or supplement internal
+   procedures with external or general knowledge.
+
+9. Keep the response concise and technical.
+
+10. Do not mention internal implementation details such as
+    embeddings, vector databases, RAG, or prompt processing.
 """
 
         return await self.llm.generate(prompt)

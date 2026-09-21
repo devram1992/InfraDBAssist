@@ -206,6 +206,87 @@ def test_search_similar_chunks_rejects_invalid_limit():
         )
 
 
+def test_search_similar_chunks_rejects_invalid_threshold():
+    repository = KnowledgeRepository()
+
+    embedding = [0.1] * 1024
+
+    with pytest.raises(
+        ValueError,
+        match="Similarity threshold must be between 0 and 1.",
+    ):
+        repository.search_similar_chunks(
+            embedding=embedding,
+            limit=5,
+            similarity_threshold=1.5,
+        )
+
+
+def test_search_similar_chunks_accepts_valid_threshold(
+    monkeypatch,
+):
+    repository = KnowledgeRepository()
+
+    embedding = [0.1] * 1024
+
+    captured = {}
+
+    class MockCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(
+            self,
+            exc_type,
+            exc_value,
+            traceback,
+        ):
+            pass
+
+        def execute(self, query, params):
+            captured["query"] = query
+            captured["params"] = params
+
+        def fetchall(self):
+            return []
+
+    class MockConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(
+            self,
+            exc_type,
+            exc_value,
+            traceback,
+        ):
+            pass
+
+        def cursor(self):
+            return MockCursor()
+
+    monkeypatch.setattr(
+        "backend.app.database.repository.get_connection",
+        lambda: MockConnection(),
+    )
+
+    result = repository.search_similar_chunks(
+        embedding=embedding,
+        limit=5,
+        similarity_threshold=0.60,
+    )
+
+    assert result == []
+
+    assert "similarity" in captured["query"]
+
+    assert captured["params"][0] == embedding
+    assert captured["params"][1] == embedding
+    assert captured["params"][2] == 0.60
+    assert captured["params"][3] == embedding
+    assert captured["params"][4] == 5
+
+
 def test_create_document_with_chunks_rolls_back_on_chunk_failure():
     repository = KnowledgeRepository()
 

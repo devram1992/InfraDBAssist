@@ -772,6 +772,7 @@ class KnowledgeRepository:
         self,
         embedding: list[float],
         limit: int = 5,
+        similarity_threshold: float | None = None,
     ) -> list[dict]:
 
         if len(embedding) != 1024:
@@ -783,6 +784,12 @@ class KnowledgeRepository:
             raise ValueError(
                 "Limit must be greater than zero."
             )
+
+        if similarity_threshold is not None:
+            if not 0 <= similarity_threshold <= 1:
+                raise ValueError(
+                    "Similarity threshold must be between 0 and 1."
+                )
 
         query = """
             SELECT
@@ -799,19 +806,39 @@ class KnowledgeRepository:
             JOIN knowledge_documents d
                 ON d.id = c.document_id
             WHERE c.embedding IS NOT NULL
+        """
+
+        params = [embedding]
+
+        if similarity_threshold is not None:
+            query += """
+                AND (1 - (c.embedding <=> %s::vector)) >= %s
+            """
+
+            params.extend(
+                [
+                    embedding,
+                    similarity_threshold,
+                ]
+            )
+
+        query += """
             ORDER BY c.embedding <=> %s::vector
             LIMIT %s;
         """
+
+        params.extend(
+            [
+                embedding,
+                limit,
+            ]
+        )
 
         with get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     query,
-                    (
-                        embedding,
-                        embedding,
-                        limit,
-                    ),
+                    params,
                 )
 
                 rows = cursor.fetchall()

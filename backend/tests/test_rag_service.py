@@ -4,9 +4,7 @@ from backend.app.rag.service import RAGService
 
 
 @pytest.mark.asyncio
-async def test_rag_search_returns_similar_chunks(
-    monkeypatch,
-):
+async def test_rag_search_returns_similar_chunks(monkeypatch):
     service = RAGService()
 
     expected_embedding = [0.1] * 1024
@@ -31,9 +29,11 @@ async def test_rag_search_returns_similar_chunks(
     def mock_search_similar_chunks(
         embedding,
         limit,
+        similarity_threshold=None,
     ):
         captured["embedding"] = embedding
         captured["limit"] = limit
+        captured["similarity_threshold"] = similarity_threshold
 
         return expected_results
 
@@ -60,12 +60,11 @@ async def test_rag_search_returns_similar_chunks(
     )
     assert captured["embedding"] == expected_embedding
     assert captured["limit"] == 5
+    assert captured["similarity_threshold"] == 0.60
 
 
 @pytest.mark.asyncio
-async def test_rag_search_uses_default_limit(
-    monkeypatch,
-):
+async def test_rag_search_uses_default_limit(monkeypatch):
     service = RAGService()
 
     captured = {}
@@ -76,8 +75,11 @@ async def test_rag_search_uses_default_limit(
     def mock_search_similar_chunks(
         embedding,
         limit,
+        similarity_threshold=None,
     ):
         captured["limit"] = limit
+        captured["similarity_threshold"] = similarity_threshold
+
         return []
 
     monkeypatch.setattr(
@@ -98,6 +100,47 @@ async def test_rag_search_uses_default_limit(
 
     assert result == []
     assert captured["limit"] == 5
+    assert captured["similarity_threshold"] == 0.60
+
+
+@pytest.mark.asyncio
+async def test_rag_search_passes_similarity_threshold(
+    monkeypatch,
+):
+    service = RAGService()
+
+    captured = {}
+
+    async def mock_embed(text):
+        return [0.1] * 1024
+
+    def mock_search_similar_chunks(
+        embedding,
+        limit,
+        similarity_threshold=None,
+    ):
+        captured["similarity_threshold"] = similarity_threshold
+        return []
+
+    monkeypatch.setattr(
+        service.embedding_client,
+        "embed",
+        mock_embed,
+    )
+
+    monkeypatch.setattr(
+        service.repository,
+        "search_similar_chunks",
+        mock_search_similar_chunks,
+    )
+
+    result = await service.search(
+        question="Oracle performance troubleshooting",
+        similarity_threshold=0.60,
+    )
+
+    assert result == []
+    assert captured["similarity_threshold"] == 0.60
 
 
 @pytest.mark.asyncio
@@ -120,6 +163,34 @@ async def test_rag_search_rejects_whitespace_question():
         match="Question cannot be empty.",
     ):
         await service.search("   ")
+
+
+@pytest.mark.asyncio
+async def test_rag_search_rejects_invalid_limit():
+    service = RAGService()
+
+    with pytest.raises(
+        ValueError,
+        match="Limit must be greater than zero.",
+    ):
+        await service.search(
+            "Oracle performance troubleshooting",
+            limit=0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_rag_search_rejects_invalid_similarity_threshold():
+    service = RAGService()
+
+    with pytest.raises(
+        ValueError,
+        match="Similarity threshold must be between 0 and 1.",
+    ):
+        await service.search(
+            "Oracle performance troubleshooting",
+            similarity_threshold=1.5,
+        )
 
 
 @pytest.mark.asyncio
@@ -160,6 +231,7 @@ async def test_rag_search_propagates_repository_failure(
     def fail_search_similar_chunks(
         embedding,
         limit,
+        similarity_threshold=None,
     ):
         raise RuntimeError(
             "Vector search unavailable."
