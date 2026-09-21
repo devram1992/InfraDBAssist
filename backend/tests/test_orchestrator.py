@@ -413,3 +413,91 @@ async def test_execute_tool_uses_tool_default_parameter():
     assert result["status"] == "success"
     assert result["tool"] == "oracle_database"
     assert result["data"]["database"] == "PRODDB"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_rejects_unknown_tool():
+    orchestrator = AIOrchestrator()
+
+    result = await orchestrator.execute_tool(
+        tool_name="unknown_tool",
+        parameters={},
+    )
+
+    assert result["status"] == "error"
+    assert result["error"] == "Unknown tool: unknown_tool"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_rejects_invalid_parameter_type():
+    orchestrator = AIOrchestrator()
+
+    result = await orchestrator.execute_tool(
+        tool_name="oracle_database",
+        parameters="PRODDB",
+    )
+
+    assert result["status"] == "error"
+    assert (
+        result["error"]
+        == "Tool parameters must be a dictionary."
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_handles_value_error(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_execute(request):
+        raise ValueError("Invalid database request")
+
+    tool = orchestrator.tool_registry.get("oracle_database")
+
+    monkeypatch.setattr(
+        tool,
+        "execute",
+        mock_execute,
+    )
+
+    result = await orchestrator.execute_tool(
+        tool_name="oracle_database",
+        parameters={
+            "database": "PRODDB",
+        },
+    )
+
+    assert result["status"] == "error"
+    assert result["error"] == "Invalid database request"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_handles_unexpected_exception(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_execute(request):
+        raise RuntimeError("Database connection failed")
+
+    tool = orchestrator.tool_registry.get("oracle_database")
+
+    monkeypatch.setattr(
+        tool,
+        "execute",
+        mock_execute,
+    )
+
+    result = await orchestrator.execute_tool(
+        tool_name="oracle_database",
+        parameters={
+            "database": "PRODDB",
+        },
+    )
+
+    assert result["status"] == "error"
+    assert (
+        result["error"]
+        == "Tool execution failed: Database connection failed"
+    )
