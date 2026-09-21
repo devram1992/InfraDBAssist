@@ -61,6 +61,7 @@ async def test_process_supports_knowledge_only_question(
     assert result["parameters"] == {}
     assert result["tool_result"] is None
     assert len(result["knowledge_results"]) == 1
+
     assert (
         result["answer"]
         == "Use the database backup SOP to verify completion."
@@ -151,6 +152,163 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     assert result["parameters"] == {
         "database": "PRODDB",
     }
+
     assert result["tool_result"]["database"] == "PRODDB"
     assert len(result["knowledge_results"]) == 1
     assert result["answer"] == "PRODDB is OPEN."
+
+
+@pytest.mark.asyncio
+async def test_select_tool_returns_valid_tool_and_parameters(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "PRODDB",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database PRODDB"
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "PRODDB",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_returns_none_for_knowledge_only_question(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "NONE",
+            "parameters": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "How do I verify database backups?"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_unknown_tool(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "unknown_tool",
+            "parameters": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check something"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_invalid_parameters(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": "invalid",
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_handles_invalid_json(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        raise ValueError("LLM returned invalid JSON")
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_non_dictionary_response(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return [
+            "oracle_database",
+            {
+                "database": "PRODDB",
+            },
+        ]
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database"
+    )
+
+    assert result is None
