@@ -50,6 +50,7 @@ async def test_generate_success(monkeypatch):
             assert json["model"] == "qwen3:8b"
             assert json["prompt"] == "Test prompt"
             assert json["stream"] is False
+            assert json["think"] is False
             return MockResponse()
 
     monkeypatch.setattr(

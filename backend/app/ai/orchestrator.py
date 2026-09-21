@@ -1,7 +1,6 @@
 from backend.app.tools.registry import ToolRegistry
 
 from backend.app.ai.ollamaclient import OllamaClient
-
 from backend.app.rag.service import RAGService
 
 from backend.app.tools.oracle.tool import OracleTool
@@ -21,7 +20,6 @@ class AIOrchestrator:
         self.tool_registry = ToolRegistry()
 
         self.llm = OllamaClient()
-
         self.rag = RAGService()
 
         # Register available tools
@@ -61,7 +59,11 @@ class AIOrchestrator:
         prompt = f"""
 You are the tool-selection engine for InfraDB Assist.
 
-Your job is to select exactly ONE tool for the engineer's question
+Your job is to determine whether the engineer's question
+requires a live system tool or can be answered from internal
+knowledge.
+
+If a live system tool is required, select exactly ONE tool
 and extract the parameters explicitly provided in the question.
 
 Available tools:
@@ -77,26 +79,59 @@ Return ONLY valid JSON using this exact structure:
 
 Rules:
 
-1. The tool must be one of the available tools.
+1. Select a tool ONLY when the engineer is asking to inspect,
+   check, diagnose, retrieve, or verify the CURRENT state of
+   a specific system, database, server, cluster, or infrastructure
+   environment.
 
-2. Return ONLY valid JSON.
+2. Do NOT select a tool when the engineer is asking:
+   - how to perform a procedure
+   - how to verify something
+   - for a documented procedure
+   - for an explanation
+   - for troubleshooting guidance
+   - for general technical information
+   - for a runbook, SOP, RCA, or other internal knowledge
 
-3. Do not include markdown.
+3. For knowledge, procedure, explanation, or troubleshooting
+   questions, return:
 
-4. Do not include explanations.
+   {{
+       "tool": "NONE",
+       "parameters": {{}}
+   }}
 
-5. Extract parameters explicitly provided by the engineer.
+4. If the question could be answered from internal documentation
+   without inspecting a live system, return "NONE".
 
-6. Use the exact parameter names defined by the selected tool.
+5. Select a database tool only when the question requires
+   current database/system information.
 
-7. Do not invent parameter values.
+6. Select an infrastructure tool only when the question requires
+   current infrastructure/system information.
 
-8. If a parameter is not explicitly provided, omit it.
+7. The tool must be one of the available tools or "NONE".
 
-9. The selected tool may apply its own safe default for omitted parameters.
+8. Return ONLY valid JSON.
 
-10. Do not select a tool only because a parameter is missing if the tool
-    can safely handle the missing parameter using its own default.
+9. Do not include markdown.
+
+10. Do not include explanations.
+
+11. Extract parameters explicitly provided by the engineer.
+
+12. Use the exact parameter names defined by the selected tool.
+
+13. Do not invent parameter values.
+
+14. If a parameter is not explicitly provided, omit it.
+
+15. The selected tool may apply its own safe default for omitted
+    parameters.
+
+16. Do not select a tool only because a parameter is missing if
+    the tool can safely handle the missing parameter using its
+    own default.
 
 Engineer question:
 
@@ -231,7 +266,9 @@ Engineer question:
         )
 
         if not knowledge_context:
-            knowledge_context = "No relevant internal knowledge was found."
+            knowledge_context = (
+                "No relevant internal knowledge was found."
+            )
 
         prompt = f"""
 You are InfraDB Assist, an AI assistant for Infrastructure

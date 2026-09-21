@@ -41,6 +41,7 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": False,
+            "think": False,
         }
 
         async with httpx.AsyncClient(

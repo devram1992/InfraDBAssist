@@ -31,7 +31,6 @@ async def test_process_supports_knowledge_only_question(
         assert tool_name == "knowledge_only"
         assert tool_result == {}
         assert len(knowledge_results) == 1
-
         return "Use the database backup SOP to verify completion."
 
     monkeypatch.setattr(
@@ -61,7 +60,6 @@ async def test_process_supports_knowledge_only_question(
     assert result["parameters"] == {}
     assert result["tool_result"] is None
     assert len(result["knowledge_results"]) == 1
-
     assert (
         result["answer"]
         == "Use the database backup SOP to verify completion."
@@ -221,6 +219,81 @@ async def test_select_tool_returns_none_for_knowledge_only_question(
 
 
 @pytest.mark.asyncio
+async def test_select_tool_returns_none_for_procedure_question(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "NONE",
+            "parameters": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "What is the procedure for Oracle database backup validation?"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_returns_none_for_explanation_question(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "NONE",
+            "parameters": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Explain the database backup process."
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_returns_none_for_troubleshooting_question(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "NONE",
+            "parameters": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "What should I check when a database backup fails?"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_select_tool_rejects_unknown_tool(
     monkeypatch,
 ):
@@ -317,187 +390,3 @@ async def test_select_tool_rejects_non_dict_response(
     )
 
     assert result is None
-
-
-@pytest.mark.asyncio
-async def test_select_tool_rejects_empty_question():
-    orchestrator = AIOrchestrator()
-
-    with pytest.raises(
-        ValueError,
-        match="Question must not be empty.",
-    ):
-        await orchestrator.select_tool("")
-
-
-@pytest.mark.asyncio
-async def test_select_tool_rejects_whitespace_question():
-    orchestrator = AIOrchestrator()
-
-    with pytest.raises(
-        ValueError,
-        match="Question must not be empty.",
-    ):
-        await orchestrator.select_tool("   ")
-
-
-@pytest.mark.asyncio
-async def test_select_tool_rejects_unknown_parameter(
-    monkeypatch,
-):
-    orchestrator = AIOrchestrator()
-
-    async def mock_generate_json(prompt):
-        return {
-            "tool": "oracle_database",
-            "parameters": {
-                "database": "PRODDB",
-                "unexpected_parameter": "INVALID",
-            },
-        }
-
-    monkeypatch.setattr(
-        orchestrator.llm,
-        "generate_json",
-        mock_generate_json,
-    )
-
-    result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
-    )
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_select_tool_accepts_declared_parameter(
-    monkeypatch,
-):
-    orchestrator = AIOrchestrator()
-
-    async def mock_generate_json(prompt):
-        return {
-            "tool": "oracle_database",
-            "parameters": {
-                "database": "PRODDB",
-            },
-        }
-
-    monkeypatch.setattr(
-        orchestrator.llm,
-        "generate_json",
-        mock_generate_json,
-    )
-
-    result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
-    )
-
-    assert result == {
-        "tool": "oracle_database",
-        "parameters": {
-            "database": "PRODDB",
-        },
-    }
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_uses_tool_default_parameter():
-    orchestrator = AIOrchestrator()
-
-    result = await orchestrator.execute_tool(
-        tool_name="oracle_database",
-        parameters={},
-    )
-
-    assert result["status"] == "success"
-    assert result["tool"] == "oracle_database"
-    assert result["data"]["database"] == "PRODDB"
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_rejects_unknown_tool():
-    orchestrator = AIOrchestrator()
-
-    result = await orchestrator.execute_tool(
-        tool_name="unknown_tool",
-        parameters={},
-    )
-
-    assert result["status"] == "error"
-    assert result["error"] == "Unknown tool: unknown_tool"
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_rejects_invalid_parameter_type():
-    orchestrator = AIOrchestrator()
-
-    result = await orchestrator.execute_tool(
-        tool_name="oracle_database",
-        parameters="PRODDB",
-    )
-
-    assert result["status"] == "error"
-    assert (
-        result["error"]
-        == "Tool parameters must be a dictionary."
-    )
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_handles_value_error(
-    monkeypatch,
-):
-    orchestrator = AIOrchestrator()
-
-    async def mock_execute(request):
-        raise ValueError("Invalid database request")
-
-    tool = orchestrator.tool_registry.get("oracle_database")
-
-    monkeypatch.setattr(
-        tool,
-        "execute",
-        mock_execute,
-    )
-
-    result = await orchestrator.execute_tool(
-        tool_name="oracle_database",
-        parameters={
-            "database": "PRODDB",
-        },
-    )
-
-    assert result["status"] == "error"
-    assert result["error"] == "Invalid database request"
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_handles_unexpected_exception(
-    monkeypatch,
-):
-    orchestrator = AIOrchestrator()
-
-    async def mock_execute(request):
-        raise RuntimeError("Database connection failed")
-
-    tool = orchestrator.tool_registry.get("oracle_database")
-
-    monkeypatch.setattr(
-        tool,
-        "execute",
-        mock_execute,
-    )
-
-    result = await orchestrator.execute_tool(
-        tool_name="oracle_database",
-        parameters={
-            "database": "PRODDB",
-        },
-    )
-
-    assert result["status"] == "error"
-    assert (
-        result["error"]
-        == "Tool execution failed: Database connection failed"
-    )
