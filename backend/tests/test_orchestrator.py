@@ -399,3 +399,17 @@ async def test_select_tool_accepts_declared_parameter(
             "database": "PRODDB",
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_uses_tool_default_parameter():
+    orchestrator = AIOrchestrator()
+
+    result = await orchestrator.execute_tool(
+        tool_name="oracle_database",
+        parameters={},
+    )
+
+    assert result["status"] == "success"
+    assert result["tool"] == "oracle_database"
+    assert result["data"]["database"] == "PRODDB"
