@@ -339,3 +339,63 @@ async def test_select_tool_rejects_whitespace_question():
         match="Question must not be empty.",
     ):
         await orchestrator.select_tool("   ")
+
+
+@pytest.mark.asyncio
+async def test_select_tool_rejects_unknown_parameter(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "PRODDB",
+                "unexpected_parameter": "INVALID",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database PRODDB."
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_declared_parameter(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "PRODDB",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database PRODDB."
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "PRODDB",
+        },
+    }

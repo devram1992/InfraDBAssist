@@ -120,10 +120,21 @@ Engineer question:
         if not isinstance(tool_name, str):
             return None
 
-        if not self.tool_registry.has(tool_name):
+        tool = self.tool_registry.get(tool_name)
+
+        if tool is None:
             return None
 
         if not isinstance(parameters, dict):
+            return None
+
+        declared_parameters = tool.parameters
+
+        unknown_parameters = set(parameters) - set(
+            declared_parameters
+        )
+
+        if unknown_parameters:
             return None
 
         return {
