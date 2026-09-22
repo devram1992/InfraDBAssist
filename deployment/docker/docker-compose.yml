@@ -27,6 +27,24 @@ services:
       timeout: 5s
       retries: 5
 
+  oracle:
+    image: container-registry.oracle.com/database/free:latest
+    container_name: infradb-oracle
+    restart: unless-stopped
+
+    environment:
+      ORACLE_PWD: ${ORACLE_PWD:?ORACLE_PWD must be set}
+      ORACLE_CHARACTERSET: AL32UTF8
+
+    ports:
+      - "1521:1521"
+
+    volumes:
+      - infradb-oracle-data:/opt/oracle/oradata
+
 volumes:
 
   infradb_postgres_data:
+
+  infradb-oracle-data:
+    external: true
