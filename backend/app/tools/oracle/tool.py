@@ -22,6 +22,7 @@ class OracleTool(Tool):
             "allowed_values": [
                 "health",
                 "sessions",
+                "tablespace",
             ],
         },
     }
@@ -53,6 +54,7 @@ class OracleTool(Tool):
         if action not in {
             "health",
             "sessions",
+            "tablespace",
         }:
             raise ValueError(
                 "Unsupported Oracle diagnostic action."
@@ -88,6 +90,11 @@ class OracleTool(Tool):
 
             if action == "sessions":
                 return await self._sessions(
+                    database=database,
+                )
+
+            if action == "tablespace":
+                return await self._tablespace(
                     database=database,
                 )
 
@@ -245,4 +252,92 @@ class OracleTool(Tool):
             "action": "sessions",
             "sessions": rows,
             "count": len(rows),
+        }
+
+    async def _tablespace(
+        self,
+        database: str,
+    ) -> dict:
+        """
+        Collect Oracle tablespace capacity information.
+        """
+
+        rows = await self.connection.execute(
+            """
+            SELECT
+                df.tablespace_name,
+                ROUND(
+                    SUM(df.bytes) / 1024 / 1024,
+                    2
+                ) AS total_mb,
+                ROUND(
+                    NVL(fs.free_mb, 0),
+                    2
+                ) AS free_mb
+            FROM dba_data_files df
+            LEFT JOIN (
+                SELECT
+                    tablespace_name,
+                    SUM(bytes) / 1024 / 1024 AS free_mb
+                FROM dba_free_space
+                GROUP BY tablespace_name
+            ) fs
+                ON fs.tablespace_name =
+                    df.tablespace_name
+            GROUP BY
+                df.tablespace_name,
+                fs.free_mb
+            ORDER BY
+                df.tablespace_name
+            """
+        )
+
+        tablespaces = []
+
+        for row in rows:
+            total_mb = float(
+                row.get("total_mb", 0) or 0
+            )
+
+            free_mb = float(
+                row.get("free_mb", 0) or 0
+            )
+
+            used_mb = max(
+                total_mb - free_mb,
+                0,
+            )
+
+            used_percent = (
+                round(
+                    (used_mb / total_mb) * 100,
+                    2,
+                )
+                if total_mb > 0
+                else 0.0
+            )
+
+            tablespaces.append(
+                {
+                    "tablespace_name": row.get(
+                        "tablespace_name",
+                        "UNKNOWN",
+                    ),
+                    "total_mb": total_mb,
+                    "used_mb": round(
+                        used_mb,
+                        2,
+                    ),
+                    "free_mb": free_mb,
+                    "used_percent": used_percent,
+                }
+            )
+
+        return {
+            "tool": self.name,
+            "status": "success",
+            "database": database,
+            "action": "tablespace",
+            "tablespaces": tablespaces,
+            "count": len(tablespaces),
         }

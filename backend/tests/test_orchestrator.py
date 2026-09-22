@@ -12,13 +12,18 @@ async def test_process_supports_knowledge_only_question(
     async def mock_select_tool(question):
         return None
 
-    async def mock_search_knowledge(question, limit=5):
+    async def mock_search_knowledge(
+        question,
+        limit=5,
+    ):
         return [
             {
                 "title": "database_backup",
                 "source_type": "sop",
                 "similarity": 0.85,
-                "content": "Verify backup completion and archive logs.",
+                "content": (
+                    "Verify backup completion and archive logs."
+                ),
             }
         ]
 
@@ -31,7 +36,10 @@ async def test_process_supports_knowledge_only_question(
         assert tool_name == "knowledge_only"
         assert tool_result == {}
         assert len(knowledge_results) == 1
-        return "Use the database backup SOP to verify completion."
+
+        return (
+            "Use the database backup SOP to verify completion."
+        )
 
     monkeypatch.setattr(
         orchestrator,
@@ -95,7 +103,10 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
             "state": "OPEN",
         }
 
-    async def mock_search_knowledge(question, limit=5):
+    async def mock_search_knowledge(
+        question,
+        limit=5,
+    ):
         return [
             {
                 "title": "oracle_performance",
@@ -350,7 +361,9 @@ async def test_select_tool_handles_invalid_json(
     orchestrator = AIOrchestrator()
 
     async def mock_generate_json(prompt):
-        raise ValueError("LLM returned invalid JSON")
+        raise ValueError(
+            "LLM returned invalid JSON"
+        )
 
     monkeypatch.setattr(
         orchestrator.llm,
@@ -391,6 +404,7 @@ async def test_select_tool_rejects_non_dict_response(
 
     assert result is None
 
+
 @pytest.mark.asyncio
 async def test_select_tool_accepts_oracle_sessions_action(
     monkeypatch,
@@ -421,5 +435,39 @@ async def test_select_tool_accepts_oracle_sessions_action(
         "parameters": {
             "database": "FREEPDB1",
             "action": "sessions",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_oracle_tablespace_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "FREEPDB1",
+                "action": "tablespace",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show Oracle tablespace usage for FREEPDB1."
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "FREEPDB1",
+            "action": "tablespace",
         },
     }
