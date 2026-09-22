@@ -426,3 +426,49 @@ async def test_disconnect_on_query_failure():
 
     assert connection.connected is True
     assert connection.disconnected is True
+
+@pytest.mark.asyncio
+async def test_long_running_sessions():
+    rows = [
+        {
+            "sid": 201,
+            "serial#": 91,
+            "username": "APPUSER",
+            "status": "ACTIVE",
+            "sql_id": "abc123",
+            "event": "db file sequential read",
+            "wait_class": "User I/O",
+            "elapsed_seconds": 180,
+            "machine": "app-server",
+            "program": "JDBC",
+        }
+    ]
+
+    connection = FakeConnection(
+        responses=[rows]
+    )
+
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="long_running_sessions",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert result["status"] == "success"
+    assert result["database"] == "FREEPDB1"
+    assert result["action"] == "long_running_sessions"
+    assert result["threshold_seconds"] == 60
+    assert result["count"] == 1
+
+    session = result["sessions"][0]
+
+    assert session["sid"] == 201
+    assert session["sql_id"] == "abc123"
+    assert session["elapsed_seconds"] == 180

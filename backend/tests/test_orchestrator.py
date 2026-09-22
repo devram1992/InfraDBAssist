@@ -503,3 +503,35 @@ async def test_select_tool_accepts_oracle_blocking_sessions_action(
             "action": "blocking_sessions",
         },
     }
+@pytest.mark.asyncio
+async def test_select_tool_accepts_oracle_long_running_sessions_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "FREEPDB1",
+                "action": "long_running_sessions",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show me long-running Oracle sessions in FREEPDB1."
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "FREEPDB1",
+            "action": "long_running_sessions",
+        },
+    }

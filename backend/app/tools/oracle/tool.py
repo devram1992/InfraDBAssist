@@ -28,6 +28,7 @@ class OracleTool(Tool):
                 "sessions",
                 "tablespace",
                 "blocking_sessions",
+                "long_running_sessions",
             ],
         },
     }
@@ -61,6 +62,7 @@ class OracleTool(Tool):
             "sessions",
             "tablespace",
             "blocking_sessions",
+            "long_running_sessions",
         }:
             raise ValueError(
                 "Unsupported Oracle diagnostic action."
@@ -109,6 +111,11 @@ class OracleTool(Tool):
 
             if action == "blocking_sessions":
                 return await self._blocking_sessions(
+                    database=database,
+                )
+
+            if action == "long_running_sessions":
+                return await self._long_running_sessions(
                     database=database,
                 )
 
@@ -393,5 +400,48 @@ class OracleTool(Tool):
             "database": database,
             "action": "blocking_sessions",
             "blocking_sessions": rows,
+            "count": len(rows),
+        }
+
+    async def _long_running_sessions(
+        self,
+        database: str,
+    ) -> dict:
+        """
+        Collect active user sessions running for at least 60 seconds.
+
+        LAST_CALL_ET represents the elapsed time, in seconds,
+        since the session became active or since its last call began.
+        """
+
+        rows = await self.connection.execute(
+            """
+            SELECT
+                sid,
+                serial#,
+                username,
+                status,
+                sql_id,
+                event,
+                wait_class,
+                last_call_et AS elapsed_seconds,
+                machine,
+                program
+            FROM v$session
+            WHERE type = 'USER'
+            AND status = 'ACTIVE'
+            AND last_call_et >= 60
+            ORDER BY last_call_et DESC
+            FETCH FIRST 20 ROWS ONLY
+            """
+        )
+
+        return {
+            "tool": self.name,
+            "status": "success",
+            "database": database,
+            "action": "long_running_sessions",
+            "threshold_seconds": 60,
+            "sessions": rows,
             "count": len(rows),
         }
