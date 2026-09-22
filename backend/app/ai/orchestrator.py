@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import re
+
 from backend.app.tools.registry import ToolRegistry
 
 from backend.app.ai.ollamaclient import OllamaClient
@@ -12,6 +16,7 @@ from backend.app.tools.singlestore.tool import SingleStoreTool
 from backend.app.tools.cloudera.tool import ClouderaTool
 from backend.app.tools.kubernetes.tool import KubernetesTool
 from backend.app.tools.openshift.tool import OpenShiftTool
+from backend.app.tools.capacity.tool import CapacityForecastTool
 
 
 class AIOrchestrator:
@@ -32,15 +37,21 @@ class AIOrchestrator:
         self.tool_registry.register(ClouderaTool())
         self.tool_registry.register(KubernetesTool())
         self.tool_registry.register(OpenShiftTool())
+        self.tool_registry.register(CapacityForecastTool())
 
-    async def select_tool(self, question: str) -> dict | None:
+    async def select_tool(
+        self,
+        question: str,
+    ) -> dict | None:
         """
         Use the local LLM to select the most appropriate tool
         and extract the parameters required by that tool.
         """
 
         if not question or not question.strip():
-            raise ValueError("Question must not be empty.")
+            raise ValueError(
+                "Question must not be empty."
+            )
 
         tools = self.tool_registry.get_tool_metadata()
 
@@ -79,10 +90,10 @@ Return ONLY valid JSON using this exact structure:
 
 Rules:
 
-1. Select a tool ONLY when the engineer is asking to inspect,
-   check, diagnose, retrieve, or verify the CURRENT state of
+1. Select a tool when the engineer is asking to inspect,
+   check, diagnose, retrieve, verify, analyze, or forecast
    a specific system, database, server, cluster, or infrastructure
-   environment.
+   environment using available tool data.
 
 2. Do NOT select a tool when the engineer is asking:
    - how to perform a procedure
@@ -118,13 +129,16 @@ Rules:
 
 10. Do not include explanations.
 
-11. Extract parameters explicitly provided by the engineer.
+11. Extract parameters explicitly provided by the engineer,
+    and infer a parameter only when its value is unambiguously
+    determined by the wording of the question.
 
 12. Use the exact parameter names defined by the selected tool.
 
 13. Do not invent parameter values.
 
-14. If a parameter is not explicitly provided, omit it.
+14. If a parameter is not explicitly provided and cannot be
+    unambiguously determined from the question, omit it.
 
 15. The selected tool may apply its own safe default for omitted
     parameters.
@@ -133,13 +147,99 @@ Rules:
     the tool can safely handle the missing parameter using its
     own default.
 
+Capacity forecasting rules:
+
+17. Select "capacity_forecast" when the engineer asks for:
+    - capacity forecasting
+    - future utilization
+    - growth trend
+    - projected capacity
+    - projected storage usage
+    - storage growth
+    - future storage consumption
+    - when a resource will reach a threshold
+    - estimated threshold breach
+    - expected utilization after a number of days
+
+18. For "capacity_forecast":
+
+    - target identifies the database/system.
+
+    - resource identifies the capacity resource.
+
+    - For Oracle tablespaces, use the canonical resource name
+      without the word "tablespace".
+      Example:
+        "SYSTEM tablespace" -> "SYSTEM"
+        "SYSAUX tablespace" -> "SYSAUX"
+
+    - For storage, size, space consumed, storage growth,
+      MB, GB, or "how much storage":
+        metric = "used_mb"
+        unit = "MB"
+
+    - For utilization, percentage, %, or a threshold such as 99%:
+        metric = "used_percent"
+        unit = "percent"
+
+    - For a capacity_forecast selection, ALWAYS return
+      both "metric" and "unit" when the question makes
+      the metric unambiguous.
+
+    - threshold should only be extracted when explicitly
+      provided in the question.
+
+    - horizon_days should only be extracted when explicitly
+      provided in the question.
+
+    - Do not invent a target or resource.
+
+19. Example:
+
+Question:
+"When will SYSTEM tablespace in FREEPDB1 reach 99%?"
+
+Return:
+
+{{
+    "tool": "capacity_forecast",
+    "parameters": {{
+        "target": "FREEPDB1",
+        "resource": "SYSTEM",
+        "metric": "used_percent",
+        "unit": "percent",
+        "threshold": 99
+    }}
+}}
+
+20. Example:
+
+Question:
+"How much storage will SYSTEM tablespace in FREEPDB1
+use in the next 30 days?"
+
+Return:
+
+{{
+    "tool": "capacity_forecast",
+    "parameters": {{
+        "target": "FREEPDB1",
+        "resource": "SYSTEM",
+        "metric": "used_mb",
+        "unit": "MB",
+        "horizon_days": 30
+    }}
+}}
+
 Engineer question:
 
 {question}
 """
 
         try:
-            result = await self.llm.generate_json(prompt)
+            result = await self.llm.generate_json(
+                prompt
+            )
         except ValueError:
             return None
 
@@ -147,7 +247,10 @@ Engineer question:
             return None
 
         tool_name = result.get("tool")
-        parameters = result.get("parameters", {})
+        parameters = result.get(
+            "parameters",
+            {},
+        )
 
         if tool_name == "NONE":
             return None
@@ -155,7 +258,9 @@ Engineer question:
         if not isinstance(tool_name, str):
             return None
 
-        tool = self.tool_registry.get(tool_name)
+        tool = self.tool_registry.get(
+            tool_name
+        )
 
         if tool is None:
             return None
@@ -165,17 +270,197 @@ Engineer question:
 
         declared_parameters = tool.parameters
 
-        unknown_parameters = set(parameters) - set(
-            declared_parameters
+        unknown_parameters = (
+            set(parameters)
+            - set(declared_parameters)
         )
 
         if unknown_parameters:
             return None
 
+        if tool_name == "capacity_forecast":
+            parameters = (
+                self._normalize_capacity_parameters(
+                    question=question,
+                    parameters=parameters,
+                )
+            )
+
         return {
             "tool": tool_name,
             "parameters": parameters,
         }
+
+    @staticmethod
+    def _normalize_capacity_parameters(
+        question: str,
+        parameters: dict,
+    ) -> dict:
+        """
+        Normalize capacity forecast parameters.
+
+        The LLM is responsible for intent selection, while this
+        method enforces canonical values required by the
+        capacity forecast tool.
+        """
+
+        normalized = dict(parameters)
+
+        resource = normalized.get(
+            "resource"
+        )
+
+        if isinstance(resource, str):
+            resource = " ".join(
+                resource.split()
+            )
+
+            resource = re.sub(
+                r"\s+tablespace$",
+                "",
+                resource,
+                flags=re.IGNORECASE,
+            )
+
+            resource = re.sub(
+                r"\s+table\s+space$",
+                "",
+                resource,
+                flags=re.IGNORECASE,
+            )
+
+            normalized["resource"] = (
+                resource.strip()
+            )
+
+        question_lower = question.lower()
+
+        metric = normalized.get(
+            "metric"
+        )
+
+        unit = normalized.get(
+            "unit"
+        )
+
+        # Derive metric only when the question clearly
+        # identifies the required measurement.
+        if not metric:
+            threshold_requested = bool(
+                normalized.get("threshold")
+            ) or bool(
+                re.search(
+                    r"\d+(?:\.\d+)?\s*%",
+                    question_lower,
+                )
+            )
+
+            utilization_requested = any(
+                phrase in question_lower
+                for phrase in (
+                    "utilization",
+                    "utilisation",
+                    "percentage",
+                    "percent",
+                    "usage %",
+                    "used %",
+                )
+            )
+
+            storage_requested = any(
+                phrase in question_lower
+                for phrase in (
+                    "storage",
+                    "storage usage",
+                    "storage growth",
+                    "space consumed",
+                    "space usage",
+                    "size",
+                    "mb",
+                    "gb",
+                )
+            )
+
+            if (
+                threshold_requested
+                or utilization_requested
+            ):
+                metric = "used_percent"
+
+            elif storage_requested:
+                metric = "used_mb"
+
+        if metric:
+            normalized["metric"] = metric
+
+        # Derive unit from metric when unambiguous.
+        if not unit and metric:
+            if metric == "used_mb":
+                unit = "MB"
+
+            elif metric == "used_percent":
+                unit = "percent"
+
+        if unit:
+            normalized["unit"] = unit
+
+        # Normalize common LLM unit variants.
+        if isinstance(
+            normalized.get("unit"),
+            str,
+        ):
+            unit_lower = (
+                normalized["unit"]
+                .strip()
+                .lower()
+            )
+
+            if unit_lower in {
+                "%",
+                "percent",
+                "percentage",
+            }:
+                normalized["unit"] = "percent"
+
+            elif unit_lower in {
+                "mb",
+                "megabyte",
+                "megabytes",
+            }:
+                normalized["unit"] = "MB"
+
+        # Normalize common metric variants.
+        if isinstance(
+            normalized.get("metric"),
+            str,
+        ):
+            metric_lower = (
+                normalized["metric"]
+                .strip()
+                .lower()
+            )
+
+            if metric_lower in {
+                "used mb",
+                "used_mb",
+                "storage",
+                "storage_mb",
+                "storage_growth",
+            }:
+                normalized["metric"] = "used_mb"
+
+            elif metric_lower in {
+                "used percent",
+                "used_percent",
+                "utilization",
+                "utilisation",
+                "usage_percent",
+            }:
+                normalized["metric"] = (
+                    "used_percent"
+                )
+
+        return normalized
 
     async def execute_tool(
         self,
@@ -186,12 +471,16 @@ Engineer question:
         Execute a registered tool using the supplied parameters.
         """
 
-        tool = self.tool_registry.get(tool_name)
+        tool = self.tool_registry.get(
+            tool_name
+        )
 
         if tool is None:
             return {
                 "status": "error",
-                "error": f"Unknown tool: {tool_name}",
+                "error": (
+                    f"Unknown tool: {tool_name}"
+                ),
             }
 
         if parameters is None:
@@ -200,14 +489,24 @@ Engineer question:
         if not isinstance(parameters, dict):
             return {
                 "status": "error",
-                "error": "Tool parameters must be a dictionary.",
+                "error": (
+                    "Tool parameters must be "
+                    "a dictionary."
+                ),
             }
 
         try:
-            request = tool.build_request(**parameters)
-            tool.validate_request(request)
+            request = tool.build_request(
+                **parameters
+            )
 
-            result = await tool.execute(request)
+            tool.validate_request(
+                request
+            )
+
+            result = await tool.execute(
+                request
+            )
 
             return result
 
@@ -220,7 +519,9 @@ Engineer question:
         except Exception as exc:
             return {
                 "status": "error",
-                "error": f"Tool execution failed: {exc}",
+                "error": (
+                    f"Tool execution failed: {exc}"
+                ),
             }
 
     async def search_knowledge(
@@ -328,9 +629,14 @@ Rules:
 Answer:
 """
 
-        return await self.llm.generate(prompt)
+        return await self.llm.generate(
+            prompt
+        )
 
-    async def process(self, question: str) -> dict:
+    async def process(
+        self,
+        question: str,
+    ) -> dict:
         """
         Complete orchestration flow:
 
@@ -345,7 +651,9 @@ Answer:
         Grounded Answer
         """
 
-        selected = await self.select_tool(question)
+        selected = await self.select_tool(
+            question
+        )
 
         tool_name = None
         parameters = {}
@@ -360,8 +668,10 @@ Answer:
                 parameters=parameters,
             )
 
-        knowledge_results = await self.search_knowledge(
-            question=question,
+        knowledge_results = (
+            await self.search_knowledge(
+                question=question,
+            )
         )
 
         answer_tool_name = (

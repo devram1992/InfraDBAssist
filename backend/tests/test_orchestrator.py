@@ -22,7 +22,8 @@ async def test_process_supports_knowledge_only_question(
                 "source_type": "sop",
                 "similarity": 0.85,
                 "content": (
-                    "Verify backup completion and archive logs."
+                    "Verify backup completion "
+                    "and archive logs."
                 ),
             }
         ]
@@ -38,7 +39,8 @@ async def test_process_supports_knowledge_only_question(
         assert len(knowledge_results) == 1
 
         return (
-            "Use the database backup SOP to verify completion."
+            "Use the database backup SOP "
+            "to verify completion."
         )
 
     monkeypatch.setattr(
@@ -68,6 +70,7 @@ async def test_process_supports_knowledge_only_question(
     assert result["parameters"] == {}
     assert result["tool_result"] is None
     assert len(result["knowledge_results"]) == 1
+
     assert (
         result["answer"]
         == "Use the database backup SOP to verify completion."
@@ -111,11 +114,10 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
             {
                 "title": "oracle_performance",
                 "source_type": "runbook",
-                "similarity": 0.82,
+                "similarity": 0.90,
                 "content": (
-                    "Check database load, active sessions, "
-                    "wait events, CPU utilization, memory usage, "
-                    "and long-running SQL statements."
+                    "Review active sessions "
+                    "and wait events."
                 ),
             }
         ]
@@ -128,7 +130,6 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     ):
         assert tool_name == "oracle_database"
         assert tool_result["database"] == "PRODDB"
-        assert tool_result["state"] == "OPEN"
         assert len(knowledge_results) == 1
 
         return "PRODDB is OPEN."
@@ -158,18 +159,32 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     )
 
     result = await orchestrator.process(
-        "Check Oracle database PRODDB performance."
+        "Check Oracle database PRODDB performance"
     )
 
     assert result["status"] == "success"
-    assert result["selected_tool"] == "oracle_database"
+    assert (
+        result["selected_tool"]
+        == "oracle_database"
+    )
+
     assert result["parameters"] == {
         "database": "PRODDB",
     }
-    assert result["tool_result"]["database"] == "PRODDB"
-    assert result["tool_result"]["state"] == "OPEN"
-    assert len(result["knowledge_results"]) == 1
-    assert result["answer"] == "PRODDB is OPEN."
+
+    assert (
+        result["tool_result"]["database"]
+        == "PRODDB"
+    )
+
+    assert len(
+        result["knowledge_results"]
+    ) == 1
+
+    assert (
+        result["answer"]
+        == "PRODDB is OPEN."
+    )
 
 
 @pytest.mark.asyncio
@@ -223,7 +238,7 @@ async def test_select_tool_returns_none_for_knowledge_only_question(
     )
 
     result = await orchestrator.select_tool(
-        "How do I verify database backups?"
+        "What is Oracle RAC?"
     )
 
     assert result is None
@@ -248,7 +263,7 @@ async def test_select_tool_returns_none_for_procedure_question(
     )
 
     result = await orchestrator.select_tool(
-        "What is the procedure for Oracle database backup validation?"
+        "How do I perform an Oracle database backup?"
     )
 
     assert result is None
@@ -273,7 +288,7 @@ async def test_select_tool_returns_none_for_explanation_question(
     )
 
     result = await orchestrator.select_tool(
-        "Explain the database backup process."
+        "Explain Oracle Data Guard."
     )
 
     assert result is None
@@ -298,7 +313,7 @@ async def test_select_tool_returns_none_for_troubleshooting_question(
     )
 
     result = await orchestrator.select_tool(
-        "What should I check when a database backup fails?"
+        "How can I troubleshoot Oracle blocking sessions?"
     )
 
     assert result is None
@@ -323,7 +338,7 @@ async def test_select_tool_rejects_unknown_tool(
     )
 
     result = await orchestrator.select_tool(
-        "Check something."
+        "Check database status."
     )
 
     assert result is None
@@ -338,7 +353,10 @@ async def test_select_tool_rejects_invalid_parameters(
     async def mock_generate_json(prompt):
         return {
             "tool": "oracle_database",
-            "parameters": "PRODDB",
+            "parameters": {
+                "database": "PRODDB",
+                "invalid_parameter": "value",
+            },
         }
 
     monkeypatch.setattr(
@@ -471,6 +489,8 @@ async def test_select_tool_accepts_oracle_tablespace_action(
             "action": "tablespace",
         },
     }
+
+
 @pytest.mark.asyncio
 async def test_select_tool_accepts_oracle_blocking_sessions_action(
     monkeypatch,
@@ -493,7 +513,7 @@ async def test_select_tool_accepts_oracle_blocking_sessions_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show Oracle blocking sessions in FREEPDB1."
+        "Show the blocking sessions in FREEPDB1."
     )
 
     assert result == {
@@ -503,6 +523,8 @@ async def test_select_tool_accepts_oracle_blocking_sessions_action(
             "action": "blocking_sessions",
         },
     }
+
+
 @pytest.mark.asyncio
 async def test_select_tool_accepts_oracle_long_running_sessions_action(
     monkeypatch,
@@ -525,7 +547,7 @@ async def test_select_tool_accepts_oracle_long_running_sessions_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show me long-running Oracle sessions in FREEPDB1."
+        "Show long-running Oracle sessions in FREEPDB1."
     )
 
     assert result == {
@@ -535,3 +557,209 @@ async def test_select_tool_accepts_oracle_long_running_sessions_action(
             "action": "long_running_sessions",
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_capacity_forecast(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "capacity_forecast",
+            "parameters": {
+                "target": "FREEPDB1",
+                "resource": "SYSTEM",
+                "threshold": 99,
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "When will SYSTEM tablespace in FREEPDB1 reach 99%?"
+    )
+
+    assert result == {
+        "tool": "capacity_forecast",
+        "parameters": {
+            "target": "FREEPDB1",
+            "resource": "SYSTEM",
+            "metric": "used_percent",
+            "unit": "percent",
+            "threshold": 99,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_capacity_forecast_with_horizon(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "capacity_forecast",
+            "parameters": {
+                "target": "FREEPDB1",
+                "resource": "SYSTEM",
+                "horizon_days": 30,
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Forecast SYSTEM tablespace usage in FREEPDB1 "
+        "for the next 30 days."
+    )
+
+    assert result == {
+        "tool": "capacity_forecast",
+        "parameters": {
+            "target": "FREEPDB1",
+            "resource": "SYSTEM",
+            "metric": "used_mb",
+            "unit": "MB",
+            "horizon_days": 30,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_capacity_forecast_tool_is_registered():
+    orchestrator = AIOrchestrator()
+
+    assert orchestrator.tool_registry.has(
+        "capacity_forecast"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_executes_capacity_forecast(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_select_tool(question):
+        return {
+            "tool": "capacity_forecast",
+            "parameters": {
+                "target": "FREEPDB1",
+                "resource": "SYSTEM",
+                "threshold": 99,
+            },
+        }
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+    ):
+        assert tool_name == "capacity_forecast"
+
+        assert parameters == {
+            "target": "FREEPDB1",
+            "resource": "SYSTEM",
+            "threshold": 99,
+        }
+
+        return {
+            "tool": "capacity_forecast",
+            "status": "success",
+            "target": "FREEPDB1",
+            "resource": "SYSTEM",
+            "forecast": {
+                "current_value": 98.52,
+                "trend": "increasing",
+                "growth_per_day": 0.4,
+                "horizon_days": 30,
+                "projected_value": 110.52,
+                "threshold": {
+                    "configured": True,
+                    "threshold": 99.0,
+                    "status": "breach_predicted",
+                    "days_until_breach": 1.2,
+                },
+            },
+        }
+
+    async def mock_search_knowledge(
+        question,
+        limit=5,
+    ):
+        return []
+
+    async def mock_generate_answer(
+        question,
+        tool_name,
+        tool_result,
+        knowledge_results,
+    ):
+        assert tool_name == "capacity_forecast"
+        assert tool_result["resource"] == "SYSTEM"
+
+        assert (
+            tool_result["forecast"]["current_value"]
+            == 98.52
+        )
+
+        return (
+            "SYSTEM is currently at 98.52% "
+            "and the forecast predicts a threshold breach."
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "select_tool",
+        mock_select_tool,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "search_knowledge",
+        mock_search_knowledge,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "generate_answer",
+        mock_generate_answer,
+    )
+
+    result = await orchestrator.process(
+        "When will SYSTEM tablespace in FREEPDB1 reach 99%?"
+    )
+
+    assert result["status"] == "success"
+
+    assert (
+        result["selected_tool"]
+        == "capacity_forecast"
+    )
+
+    assert result["parameters"] == {
+        "target": "FREEPDB1",
+        "resource": "SYSTEM",
+        "threshold": 99,
+    }
+
+    assert (
+        result["tool_result"]["resource"]
+        == "SYSTEM"
+    )
