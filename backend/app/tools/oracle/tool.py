@@ -4,6 +4,10 @@ from backend.app.tools.base import Tool
 
 
 class OracleTool(Tool):
+    """
+    Read-only Oracle database diagnostics tool.
+    """
+
     name = "oracle_database"
     description = "Read-only Oracle database diagnostics"
     permission = "database.read"
@@ -23,6 +27,7 @@ class OracleTool(Tool):
                 "health",
                 "sessions",
                 "tablespace",
+                "blocking_sessions",
             ],
         },
     }
@@ -55,6 +60,7 @@ class OracleTool(Tool):
             "health",
             "sessions",
             "tablespace",
+            "blocking_sessions",
         }:
             raise ValueError(
                 "Unsupported Oracle diagnostic action."
@@ -65,7 +71,10 @@ class OracleTool(Tool):
             "action": action,
         }
 
-    async def execute(self, request: dict) -> dict:
+    async def execute(
+        self,
+        request: dict,
+    ) -> dict:
         """
         Execute a read-only Oracle diagnostic action.
         """
@@ -95,6 +104,11 @@ class OracleTool(Tool):
 
             if action == "tablespace":
                 return await self._tablespace(
+                    database=database,
+                )
+
+            if action == "blocking_sessions":
+                return await self._blocking_sessions(
                     database=database,
                 )
 
@@ -340,4 +354,44 @@ class OracleTool(Tool):
             "action": "tablespace",
             "tablespaces": tablespaces,
             "count": len(tablespaces),
+        }
+
+    async def _blocking_sessions(
+        self,
+        database: str,
+    ) -> dict:
+        """
+        Collect sessions currently blocked by another user session.
+        """
+
+        rows = await self.connection.execute(
+            """
+            SELECT
+                blocked.sid AS blocked_sid,
+                blocked.serial# AS blocked_serial,
+                blocked.username AS blocked_username,
+                blocked.event AS blocked_event,
+                blocked.seconds_in_wait AS wait_seconds,
+                blocked.blocking_session AS blocker_sid,
+                blocker.serial# AS blocker_serial,
+                blocker.username AS blocker_username,
+                blocker.machine AS blocker_machine,
+                blocker.program AS blocker_program
+            FROM v$session blocked
+            JOIN v$session blocker
+                ON blocker.sid = blocked.blocking_session
+            WHERE blocked.type = 'USER'
+            AND blocked.blocking_session IS NOT NULL
+            ORDER BY blocked.seconds_in_wait DESC
+            FETCH FIRST 20 ROWS ONLY
+            """
+        )
+
+        return {
+            "tool": self.name,
+            "status": "success",
+            "database": database,
+            "action": "blocking_sessions",
+            "blocking_sessions": rows,
+            "count": len(rows),
         }

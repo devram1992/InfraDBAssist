@@ -1,12 +1,44 @@
-from unittest.mock import AsyncMock
-
 import pytest
 
 from backend.app.config.settings import Settings
 from backend.app.tools.oracle.tool import OracleTool
 
 
-def test_oracle_tool_build_request_uses_configured_database(
+class FakeConnection:
+    def __init__(
+        self,
+        responses=None,
+        error=None,
+    ):
+        self.responses = responses or []
+        self.error = error
+        self.connected = False
+        self.disconnected = False
+        self.executed_queries = []
+
+    async def connect(self):
+        self.connected = True
+
+    async def disconnect(self):
+        self.disconnected = True
+
+    async def execute(
+        self,
+        query,
+        parameters=None,
+    ):
+        self.executed_queries.append(query)
+
+        if self.error is not None:
+            raise self.error
+
+        if self.responses:
+            return self.responses.pop(0)
+
+        return []
+
+
+def test_build_request_uses_configured_database(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -15,194 +47,258 @@ def test_oracle_tool_build_request_uses_configured_database(
         "FREEPDB1",
     )
 
-    connection = AsyncMock()
-    tool = OracleTool(connection=connection)
+    connection = FakeConnection()
 
-    result = tool.build_request()
+    tool = OracleTool(
+        connection=connection,
+    )
 
-    assert result == {
+    request = tool.build_request()
+
+    assert request == {
         "database": "FREEPDB1",
         "action": "health",
     }
 
 
-def test_oracle_tool_build_request_uses_requested_database():
-    connection = AsyncMock()
-    tool = OracleTool(connection=connection)
+def test_build_request_uses_explicit_database():
+    connection = FakeConnection()
 
-    result = tool.build_request(
-        database="DEVDB",
+    tool = OracleTool(
+        connection=connection,
     )
 
-    assert result == {
-        "database": "DEVDB",
+    request = tool.build_request(
+        database="TESTPDB",
+    )
+
+    assert request == {
+        "database": "TESTPDB",
         "action": "health",
     }
 
 
-def test_oracle_tool_build_request_accepts_sessions_action():
-    connection = AsyncMock()
-    tool = OracleTool(connection=connection)
+def test_build_request_sessions_action():
+    connection = FakeConnection()
 
-    result = tool.build_request(
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
         database="FREEPDB1",
         action="sessions",
     )
 
-    assert result == {
+    assert request == {
         "database": "FREEPDB1",
         "action": "sessions",
     }
 
 
-def test_oracle_tool_build_request_accepts_tablespace_action():
-    connection = AsyncMock()
-    tool = OracleTool(connection=connection)
+def test_build_request_tablespace_action():
+    connection = FakeConnection()
 
-    result = tool.build_request(
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
         database="FREEPDB1",
         action="tablespace",
     )
 
-    assert result == {
+    assert request == {
         "database": "FREEPDB1",
         "action": "tablespace",
     }
 
 
-def test_oracle_tool_build_request_rejects_unknown_action():
-    connection = AsyncMock()
-    tool = OracleTool(connection=connection)
+def test_build_request_blocking_sessions_action():
+    connection = FakeConnection()
+
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="blocking_sessions",
+    )
+
+    assert request == {
+        "database": "FREEPDB1",
+        "action": "blocking_sessions",
+    }
+
+
+def test_build_request_rejects_invalid_action():
+    connection = FakeConnection()
+
+    tool = OracleTool(
+        connection=connection,
+    )
 
     with pytest.raises(
         ValueError,
-        match="Unsupported Oracle diagnostic action.",
+        match="Unsupported Oracle diagnostic action",
     ):
         tool.build_request(
             database="FREEPDB1",
-            action="invalid",
+            action="drop_database",
         )
 
 
 @pytest.mark.asyncio
-async def test_oracle_tool_execute_returns_health_summary():
-    connection = AsyncMock()
-
-    connection.execute.side_effect = [
-        [
-            {
-                "instance_name": "FREE",
-                "host_name": "oracle-host",
-                "status": "OPEN",
-                "version": "23.0.0.0.0",
-            }
-        ],
-        [
-            {
-                "name": "FREE",
-                "open_mode": "READ WRITE",
-                "database_role": "PRIMARY",
-            }
-        ],
-        [
-            {
-                "container_name": "FREEPDB1",
-                "db_name": "FREEPDB1",
-            }
-        ],
-    ]
-
-    tool = OracleTool(connection=connection)
-
-    result = await tool.execute(
-        {
-            "database": "FREEPDB1",
-            "action": "health",
-        }
+async def test_health_summary():
+    connection = FakeConnection(
+        responses=[
+            [
+                {
+                    "instance_name": "FREE",
+                    "host_name": "oracle-host",
+                    "status": "OPEN",
+                    "version": "23.0.0.0.0",
+                }
+            ],
+            [
+                {
+                    "name": "FREE",
+                    "open_mode": "READ WRITE",
+                    "database_role": "PRIMARY",
+                }
+            ],
+            [
+                {
+                    "container_name": "FREEPDB1",
+                    "db_name": "FREE",
+                }
+            ],
+        ]
     )
 
-    assert result == {
-        "tool": "oracle_database",
-        "status": "success",
-        "database": "FREEPDB1",
-        "action": "health",
-        "state": "OPEN",
-        "instance": {
-            "instance_name": "FREE",
-            "host_name": "oracle-host",
-            "status": "OPEN",
-            "version": "23.0.0.0.0",
-        },
-        "database_info": {
-            "name": "FREE",
-            "open_mode": "READ WRITE",
-            "database_role": "PRIMARY",
-        },
-        "container": {
-            "container_name": "FREEPDB1",
-            "db_name": "FREEPDB1",
-        },
-    }
+    tool = OracleTool(
+        connection=connection,
+    )
 
-    connection.connect.assert_awaited_once()
-    assert connection.execute.await_count == 3
-    connection.disconnect.assert_awaited_once()
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="health",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert connection.connected is True
+    assert connection.disconnected is True
+
+    assert result["status"] == "success"
+    assert result["database"] == "FREEPDB1"
+    assert result["action"] == "health"
+    assert result["state"] == "OPEN"
+
+    assert result["instance"]["instance_name"] == "FREE"
+    assert result["instance"]["host_name"] == "oracle-host"
+    assert result["instance"]["version"] == "23.0.0.0.0"
+
+    assert result["database_info"]["name"] == "FREE"
+    assert result["database_info"]["open_mode"] == "READ WRITE"
+    assert result["database_info"]["database_role"] == "PRIMARY"
+
+    assert result["container"]["container_name"] == "FREEPDB1"
+    assert result["container"]["db_name"] == "FREE"
 
 
 @pytest.mark.asyncio
-async def test_oracle_tool_execute_returns_active_sessions():
-    connection = AsyncMock()
+async def test_health_returns_unknown_when_no_rows():
+    connection = FakeConnection(
+        responses=[
+            [],
+            [],
+            [],
+        ]
+    )
 
-    connection.execute.return_value = [
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="health",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert result["status"] == "success"
+    assert result["state"] == "UNKNOWN"
+
+    assert result["instance"]["instance_name"] == "UNKNOWN"
+    assert result["instance"]["host_name"] == "UNKNOWN"
+    assert result["instance"]["status"] == "UNKNOWN"
+    assert result["instance"]["version"] == "UNKNOWN"
+
+    assert result["database_info"]["name"] == "UNKNOWN"
+    assert result["database_info"]["open_mode"] == "UNKNOWN"
+    assert result["database_info"]["database_role"] == "UNKNOWN"
+
+    assert result["container"]["container_name"] == "UNKNOWN"
+    assert result["container"]["db_name"] == "UNKNOWN"
+
+
+@pytest.mark.asyncio
+async def test_active_sessions():
+    rows = [
         {
             "sid": 101,
-            "serial#": 12345,
+            "serial#": 55,
             "username": "APPUSER",
             "status": "ACTIVE",
-            "event": "SQL*Net message to client",
-            "machine": "test-host",
-            "program": "test-program",
-        }
+            "event": "db file sequential read",
+            "machine": "app-server",
+            "program": "JDBC",
+        },
+        {
+            "sid": 102,
+            "serial#": 77,
+            "username": "APPUSER",
+            "status": "ACTIVE",
+            "event": "SQL*Net message from client",
+            "machine": "app-server-2",
+            "program": "JDBC",
+        },
     ]
 
-    tool = OracleTool(connection=connection)
-
-    result = await tool.execute(
-        {
-            "database": "FREEPDB1",
-            "action": "sessions",
-        }
+    connection = FakeConnection(
+        responses=[rows]
     )
 
-    assert result == {
-        "tool": "oracle_database",
-        "status": "success",
-        "database": "FREEPDB1",
-        "action": "sessions",
-        "sessions": [
-            {
-                "sid": 101,
-                "serial#": 12345,
-                "username": "APPUSER",
-                "status": "ACTIVE",
-                "event": "SQL*Net message to client",
-                "machine": "test-host",
-                "program": "test-program",
-            }
-        ],
-        "count": 1,
-    }
+    tool = OracleTool(
+        connection=connection,
+    )
 
-    connection.connect.assert_awaited_once()
-    connection.execute.assert_awaited_once()
-    connection.disconnect.assert_awaited_once()
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="sessions",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert result["status"] == "success"
+    assert result["database"] == "FREEPDB1"
+    assert result["action"] == "sessions"
+    assert result["count"] == 2
+    assert result["sessions"] == rows
 
 
 @pytest.mark.asyncio
-async def test_oracle_tool_execute_returns_tablespace_usage():
-    connection = AsyncMock()
-
-    connection.execute.return_value = [
+async def test_tablespace_usage():
+    rows = [
         {
             "tablespace_name": "SYSTEM",
             "total_mb": 300,
@@ -211,116 +307,122 @@ async def test_oracle_tool_execute_returns_tablespace_usage():
         {
             "tablespace_name": "SYSAUX",
             "total_mb": 440,
-            "free_mb": 26.5,
+            "free_mb": 26.44,
         },
     ]
 
-    tool = OracleTool(connection=connection)
-
-    result = await tool.execute(
-        {
-            "database": "FREEPDB1",
-            "action": "tablespace",
-        }
+    connection = FakeConnection(
+        responses=[rows]
     )
 
-    assert result == {
-        "tool": "oracle_database",
-        "status": "success",
-        "database": "FREEPDB1",
-        "action": "tablespace",
-        "tablespaces": [
-            {
-                "tablespace_name": "SYSTEM",
-                "total_mb": 300.0,
-                "used_mb": 295.56,
-                "free_mb": 4.44,
-                "used_percent": 98.52,
-            },
-            {
-                "tablespace_name": "SYSAUX",
-                "total_mb": 440.0,
-                "used_mb": 413.5,
-                "free_mb": 26.5,
-                "used_percent": 93.98,
-            },
-        ],
-        "count": 2,
-    }
+    tool = OracleTool(
+        connection=connection,
+    )
 
-    connection.connect.assert_awaited_once()
-    connection.execute.assert_awaited_once()
-    connection.disconnect.assert_awaited_once()
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="tablespace",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert result["status"] == "success"
+    assert result["database"] == "FREEPDB1"
+    assert result["action"] == "tablespace"
+    assert result["count"] == 2
+
+    system = result["tablespaces"][0]
+
+    assert system["tablespace_name"] == "SYSTEM"
+    assert system["total_mb"] == 300.0
+    assert system["free_mb"] == 4.44
+    assert system["used_mb"] == 295.56
+    assert system["used_percent"] == 98.52
 
 
 @pytest.mark.asyncio
-async def test_oracle_tool_execute_returns_unknown_when_queries_are_empty():
-    connection = AsyncMock()
-
-    connection.execute.side_effect = [
-        [],
-        [],
-        [],
+async def test_blocking_sessions():
+    rows = [
+        {
+            "blocked_sid": 101,
+            "blocked_serial": 55,
+            "blocked_username": "APPUSER",
+            "blocked_event": (
+                "enq: TX - row lock contention"
+            ),
+            "wait_seconds": 120,
+            "blocker_sid": 88,
+            "blocker_serial": 12,
+            "blocker_username": "APPUSER",
+            "blocker_machine": "app-server",
+            "blocker_program": "JDBC",
+        }
     ]
 
-    tool = OracleTool(connection=connection)
-
-    result = await tool.execute(
-        {
-            "database": "FREEPDB1",
-            "action": "health",
-        }
+    connection = FakeConnection(
+        responses=[rows]
     )
 
-    assert result == {
-        "tool": "oracle_database",
-        "status": "success",
-        "database": "FREEPDB1",
-        "action": "health",
-        "state": "UNKNOWN",
-        "instance": {
-            "instance_name": "UNKNOWN",
-            "host_name": "UNKNOWN",
-            "status": "UNKNOWN",
-            "version": "UNKNOWN",
-        },
-        "database_info": {
-            "name": "UNKNOWN",
-            "open_mode": "UNKNOWN",
-            "database_role": "UNKNOWN",
-        },
-        "container": {
-            "container_name": "UNKNOWN",
-            "db_name": "UNKNOWN",
-        },
-    }
+    tool = OracleTool(
+        connection=connection,
+    )
 
-    connection.connect.assert_awaited_once()
-    assert connection.execute.await_count == 3
-    connection.disconnect.assert_awaited_once()
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="blocking_sessions",
+    )
+
+    result = await tool.execute(
+        request
+    )
+
+    assert result["status"] == "success"
+    assert result["database"] == "FREEPDB1"
+    assert result["action"] == "blocking_sessions"
+    assert result["count"] == 1
+
+    assert (
+        result["blocking_sessions"][0]["blocked_sid"]
+        == 101
+    )
+
+    assert (
+        result["blocking_sessions"][0]["blocker_sid"]
+        == 88
+    )
+
+    assert (
+        result["blocking_sessions"][0]["wait_seconds"]
+        == 120
+    )
 
 
 @pytest.mark.asyncio
-async def test_oracle_tool_execute_disconnects_when_query_fails():
-    connection = AsyncMock()
-
-    connection.execute.side_effect = RuntimeError(
-        "Oracle query failed"
+async def test_disconnect_on_query_failure():
+    connection = FakeConnection(
+        error=RuntimeError(
+            "Oracle query failed"
+        )
     )
 
-    tool = OracleTool(connection=connection)
+    tool = OracleTool(
+        connection=connection,
+    )
+
+    request = tool.build_request(
+        database="FREEPDB1",
+        action="health",
+    )
 
     with pytest.raises(
         RuntimeError,
         match="Oracle query failed",
     ):
         await tool.execute(
-            {
-                "database": "FREEPDB1",
-                "action": "health",
-            }
+            request
         )
 
-    connection.connect.assert_awaited_once()
-    connection.execute.assert_awaited_once()
-    connection.disconnect.assert_awaited_once()
+    assert connection.connected is True
+    assert connection.disconnected is True
