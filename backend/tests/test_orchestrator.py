@@ -390,3 +390,36 @@ async def test_select_tool_rejects_non_dict_response(
     )
 
     assert result is None
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_oracle_sessions_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "FREEPDB1",
+                "action": "sessions",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show active Oracle sessions in FREEPDB1."
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "FREEPDB1",
+            "action": "sessions",
+        },
+    }
