@@ -471,3 +471,35 @@ async def test_select_tool_accepts_oracle_tablespace_action(
             "action": "tablespace",
         },
     }
+@pytest.mark.asyncio
+async def test_select_tool_accepts_oracle_blocking_sessions_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "FREEPDB1",
+                "action": "blocking_sessions",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show Oracle blocking sessions in FREEPDB1."
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "FREEPDB1",
+            "action": "blocking_sessions",
+        },
+    }
