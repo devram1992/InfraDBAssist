@@ -1,3 +1,5 @@
+import re
+
 import oracledb
 
 from backend.app.integrations.databases.base import DatabaseConnection
@@ -60,18 +62,63 @@ class OracleConnection(DatabaseConnection):
 
     def _validate_config(self) -> None:
         if not self.host:
-            raise ValueError("Oracle host is not configured.")
+            raise ValueError(
+                "Oracle host is not configured."
+            )
 
         if not self.service:
-            raise ValueError("Oracle service is not configured.")
+            raise ValueError(
+                "Oracle service is not configured."
+            )
 
         if not self.username:
-            raise ValueError("Oracle username is not configured.")
+            raise ValueError(
+                "Oracle username is not configured."
+            )
 
         if not self.password:
-            raise ValueError("Oracle password is not configured.")
+            raise ValueError(
+                "Oracle password is not configured."
+            )
+
+    def _validate_read_only_query(self, query: str) -> None:
+        """
+        Allow only a single read-only SELECT statement.
+        """
+
+        normalized = query.strip()
+
+        if normalized.endswith(";"):
+            normalized = normalized[:-1].rstrip()
+
+        if ";" in normalized:
+            raise ValueError(
+                "Oracle connection only permits a single SQL statement."
+            )
+
+        if not re.match(
+            r"^SELECT\b",
+            normalized,
+            re.IGNORECASE,
+        ):
+            raise ValueError(
+                "Oracle connection only permits read-only SELECT statements."
+            )
+
+        if re.search(
+            r"\bFOR\s+UPDATE\b",
+            normalized,
+            re.IGNORECASE,
+        ):
+            raise ValueError(
+                "Oracle connection does not permit SELECT FOR UPDATE statements."
+            )
 
     async def connect(self) -> None:
+        """
+        Establish the Oracle database connection.
+        """
+
         self._validate_config()
 
         dsn = oracledb.makedsn(
@@ -88,6 +135,10 @@ class OracleConnection(DatabaseConnection):
         )
 
     async def disconnect(self) -> None:
+        """
+        Close the Oracle database connection.
+        """
+
         if self.connection is not None:
             self.connection.close()
             self.connection = None
@@ -97,6 +148,11 @@ class OracleConnection(DatabaseConnection):
         query: str,
         parameters: dict | None = None,
     ) -> list[dict]:
+        """
+        Execute a read-only SELECT query and return
+        normalized rows.
+        """
+
         if self.connection is None:
             raise RuntimeError(
                 "Oracle connection is not established."
@@ -106,6 +162,8 @@ class OracleConnection(DatabaseConnection):
             raise ValueError(
                 "Oracle query must not be empty."
             )
+
+        self._validate_read_only_query(query)
 
         cursor = self.connection.cursor()
 
@@ -131,6 +189,10 @@ class OracleConnection(DatabaseConnection):
             cursor.close()
 
     async def health_check(self) -> dict:
+        """
+        Check Oracle connectivity and return status.
+        """
+
         if self.connection is None:
             return {
                 "status": "disconnected",
@@ -141,7 +203,9 @@ class OracleConnection(DatabaseConnection):
             cursor = self.connection.cursor()
 
             try:
-                cursor.execute("SELECT 1 FROM dual")
+                cursor.execute(
+                    "SELECT 1 FROM dual"
+                )
                 cursor.fetchone()
 
                 return {
