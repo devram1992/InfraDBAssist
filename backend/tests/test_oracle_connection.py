@@ -6,7 +6,14 @@ from backend.app.integrations.databases.oracle import OracleConnection
 
 
 def test_oracle_connection_requires_configuration():
-    connection = OracleConnection()
+    connection = OracleConnection(
+        config={
+            "host": "",
+            "service": "",
+            "username": "",
+            "password": "",
+        }
+    )
 
     with pytest.raises(
         ValueError,

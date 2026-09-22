@@ -3,7 +3,26 @@ import importlib
 from backend.app.config import settings as settings_module
 
 
-def test_oracle_default_settings():
+ORACLE_ENV_VARS = [
+    "INFRADB_ORACLE_HOST",
+    "INFRADB_ORACLE_PORT",
+    "INFRADB_ORACLE_SERVICE",
+    "INFRADB_ORACLE_USERNAME",
+    "INFRADB_ORACLE_PASSWORD",
+    "INFRADB_ORACLE_CONNECT_TIMEOUT",
+    "INFRADB_ORACLE_QUERY_TIMEOUT",
+]
+
+
+def test_oracle_default_settings(monkeypatch):
+    for variable in ORACLE_ENV_VARS:
+        monkeypatch.delenv(
+            variable,
+            raising=False,
+        )
+
+    importlib.reload(settings_module)
+
     settings = settings_module.Settings
 
     assert settings.oracle_host == ""
