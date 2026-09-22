@@ -1,5 +1,3 @@
-from datetime import datetime
-
 import pytest
 
 from backend.app.capacity.linux_capacity_collector import (
@@ -57,16 +55,46 @@ class FakeRepository:
         return measurement_id
 
 
+def filesystem_payload():
+    return {
+        "status": "success",
+        "data": {
+            "server": "DEV-SERVER-01",
+            "disk_usage": "70%",
+            "filesystems": [
+                {
+                    "filesystem": "/dev/root",
+                    "mount_point": "/",
+                    "total_mb": 102400.0,
+                    "used_mb": 71680.0,
+                    "available_mb": 30720.0,
+                    "used_percent": 70.0,
+                },
+                {
+                    "filesystem": "/dev/data",
+                    "mount_point": "/data",
+                    "total_mb": 204800.0,
+                    "used_mb": 102400.0,
+                    "available_mb": 102400.0,
+                    "used_percent": 50.0,
+                },
+                {
+                    "filesystem": "/dev/u01",
+                    "mount_point": "/u01",
+                    "total_mb": 51200.0,
+                    "used_mb": 40960.0,
+                    "available_mb": 10240.0,
+                    "used_percent": 80.0,
+                },
+            ],
+        },
+    }
+
+
 @pytest.mark.asyncio
-async def test_collect_disk_capacity_success():
+async def test_collect_disk_capacity_collects_each_filesystem():
     linux_tool = FakeLinuxTool(
-        {
-            "status": "success",
-            "data": {
-                "server": "DEV-SERVER-01",
-                "disk_usage": "68%",
-            },
-        }
+        filesystem_payload()
     )
 
     repository = FakeRepository()
@@ -81,30 +109,137 @@ async def test_collect_disk_capacity_success():
     assert result["status"] == "success"
     assert result["source"] == "linux"
     assert result["server"] == "DEV-SERVER-01"
-    assert result["count"] == 1
 
-    assert len(repository.measurements) == 1
+    # Three filesystems were collected.
+    assert result["count"] == 3
+    assert len(result["measurements"]) == 3
 
-    measurement = repository.measurements[0]
+    resources = [
+        measurement["resource"]
+        for measurement in result["measurements"]
+    ]
 
-    assert measurement["source"] == "linux"
-    assert measurement["target"] == "DEV-SERVER-01"
-    assert measurement["resource"] == "disk"
-    assert measurement["metric"] == "used_percent"
-    assert measurement["value"] == 68.0
-    assert measurement["unit"] == "percent"
+    assert resources == [
+        "/",
+        "/data",
+        "/u01",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_capacity_stores_used_percent_and_used_mb():
+    linux_tool = FakeLinuxTool(
+        filesystem_payload()
+    )
+
+    repository = FakeRepository()
+
+    collector = LinuxCapacityCollector(
+        linux_tool=linux_tool,
+        repository=repository,
+    )
+
+    result = await collector.collect_disk_capacity()
+
+    assert result["count"] == 3
+
+    # Two measurements per filesystem:
+    # used_percent + used_mb.
+    assert len(repository.measurements) == 6
+
+    root_measurements = [
+        measurement
+        for measurement in repository.measurements
+        if measurement["resource"] == "/"
+    ]
+
+    assert len(root_measurements) == 2
+
+    percent_measurement = next(
+        measurement
+        for measurement in root_measurements
+        if measurement["metric"] == "used_percent"
+    )
+
+    mb_measurement = next(
+        measurement
+        for measurement in root_measurements
+        if measurement["metric"] == "used_mb"
+    )
+
+    assert percent_measurement["value"] == 70.0
+    assert percent_measurement["unit"] == "percent"
+
+    assert mb_measurement["value"] == 71680.0
+    assert mb_measurement["unit"] == "MB"
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_capacity_stores_filesystem_metadata():
+    linux_tool = FakeLinuxTool(
+        filesystem_payload()
+    )
+
+    repository = FakeRepository()
+
+    collector = LinuxCapacityCollector(
+        linux_tool=linux_tool,
+        repository=repository,
+    )
+
+    await collector.collect_disk_capacity()
+
+    root_percent = next(
+        measurement
+        for measurement in repository.measurements
+        if (
+            measurement["resource"] == "/"
+            and measurement["metric"] == "used_percent"
+        )
+    )
+
+    assert root_percent["metadata"] == {
+        "filesystem": "/dev/root",
+        "total_mb": 102400.0,
+        "available_mb": 30720.0,
+        "used_mb": 71680.0,
+        "used_percent": 70.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_capacity_collects_u01_independently():
+    linux_tool = FakeLinuxTool(
+        filesystem_payload()
+    )
+
+    repository = FakeRepository()
+
+    collector = LinuxCapacityCollector(
+        linux_tool=linux_tool,
+        repository=repository,
+    )
+
+    result = await collector.collect_disk_capacity()
+
+    u01 = [
+        measurement
+        for measurement in result["measurements"]
+        if measurement["resource"] == "/u01"
+    ]
+
+    assert len(u01) == 1
+
+    assert u01[0]["used_percent"] == 80.0
+    assert u01[0]["used_mb"] == 40960.0
+    assert u01[0]["total_mb"] == 51200.0
+    assert u01[0]["available_mb"] == 10240.0
 
 
 @pytest.mark.asyncio
 async def test_collect_disk_capacity_uses_supplied_server():
     linux_tool = FakeLinuxTool(
-        {
-            "status": "success",
-            "data": {
-                "server": "DEV-SERVER-02",
-                "disk_usage": "72%",
-            },
-        }
+        filesystem_payload()
     )
 
     repository = FakeRepository()
@@ -122,32 +257,10 @@ async def test_collect_disk_capacity_uses_supplied_server():
         "server": "DEV-SERVER-02",
     }
 
-    assert result["server"] == "DEV-SERVER-02"
-    assert repository.measurements[0]["value"] == 72.0
-
-
-@pytest.mark.asyncio
-async def test_collect_disk_capacity_accepts_numeric_percentage():
-    linux_tool = FakeLinuxTool(
-        {
-            "status": "success",
-            "data": {
-                "server": "DEV-SERVER-03",
-                "disk_usage": 81,
-            },
-        }
+    assert result["server"] == "DEV-SERVER-01"
+    assert repository.measurements[0]["target"] == (
+        "DEV-SERVER-01"
     )
-
-    repository = FakeRepository()
-
-    collector = LinuxCapacityCollector(
-        linux_tool=linux_tool,
-        repository=repository,
-    )
-
-    result = await collector.collect_disk_capacity()
-
-    assert result["measurements"][0]["used_percent"] == 81.0
 
 
 @pytest.mark.asyncio
@@ -157,7 +270,16 @@ async def test_collect_disk_capacity_rejects_invalid_percentage():
             "status": "success",
             "data": {
                 "server": "DEV-SERVER-01",
-                "disk_usage": "not-a-number",
+                "filesystems": [
+                    {
+                        "filesystem": "/dev/root",
+                        "mount_point": "/",
+                        "total_mb": 100.0,
+                        "used_mb": 60.0,
+                        "available_mb": 40.0,
+                        "used_percent": "not-a-number",
+                    }
+                ],
             },
         }
     )
@@ -183,7 +305,16 @@ async def test_collect_disk_capacity_rejects_percentage_above_100():
             "status": "success",
             "data": {
                 "server": "DEV-SERVER-01",
-                "disk_usage": "101%",
+                "filesystems": [
+                    {
+                        "filesystem": "/dev/root",
+                        "mount_point": "/",
+                        "total_mb": 100.0,
+                        "used_mb": 101.0,
+                        "available_mb": 0.0,
+                        "used_percent": "101%",
+                    }
+                ],
             },
         }
     )
@@ -198,6 +329,41 @@ async def test_collect_disk_capacity_rejects_percentage_above_100():
     with pytest.raises(
         ValueError,
         match="between 0 and 100",
+    ):
+        await collector.collect_disk_capacity()
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_capacity_rejects_negative_used_mb():
+    linux_tool = FakeLinuxTool(
+        {
+            "status": "success",
+            "data": {
+                "server": "DEV-SERVER-01",
+                "filesystems": [
+                    {
+                        "filesystem": "/dev/root",
+                        "mount_point": "/",
+                        "total_mb": 100.0,
+                        "used_mb": -1.0,
+                        "available_mb": 101.0,
+                        "used_percent": 1.0,
+                    }
+                ],
+            },
+        }
+    )
+
+    repository = FakeRepository()
+
+    collector = LinuxCapacityCollector(
+        linux_tool=linux_tool,
+        repository=repository,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="used_mb cannot be negative",
     ):
         await collector.collect_disk_capacity()
 
@@ -226,12 +392,39 @@ async def test_collect_disk_capacity_rejects_failed_tool():
 
 
 @pytest.mark.asyncio
-async def test_collect_disk_capacity_uses_unknown_server_when_missing():
+async def test_collect_disk_capacity_rejects_empty_filesystem_result():
     linux_tool = FakeLinuxTool(
         {
             "status": "success",
             "data": {
-                "disk_usage": "55%",
+                "server": "DEV-SERVER-01",
+                "filesystems": [],
+            },
+        }
+    )
+
+    repository = FakeRepository()
+
+    collector = LinuxCapacityCollector(
+        linux_tool=linux_tool,
+        repository=repository,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="no filesystem measurements",
+    ):
+        await collector.collect_disk_capacity()
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_capacity_uses_legacy_disk_usage():
+    linux_tool = FakeLinuxTool(
+        {
+            "status": "success",
+            "data": {
+                "server": "DEV-SERVER-01",
+                "disk_usage": "68%",
             },
         }
     )
@@ -245,8 +438,17 @@ async def test_collect_disk_capacity_uses_unknown_server_when_missing():
 
     result = await collector.collect_disk_capacity()
 
-    assert result["server"] == "UNKNOWN"
-    assert repository.measurements[0]["target"] == "UNKNOWN"
+    assert result["status"] == "success"
+    assert result["count"] == 1
+
+    assert result["measurements"][0]["resource"] == "disk"
+    assert result["measurements"][0]["used_percent"] == 68.0
+
+    assert len(repository.measurements) == 1
+    assert repository.measurements[0]["metric"] == (
+        "used_percent"
+    )
+    assert repository.measurements[0]["unit"] == "percent"
 
 
 def test_parse_percentage():
@@ -271,7 +473,9 @@ def test_parse_percentage_rejects_negative():
         ValueError,
         match="between 0 and 100",
     ):
-        LinuxCapacityCollector._parse_percentage("-1%")
+        LinuxCapacityCollector._parse_percentage(
+            "-1%"
+        )
 
 
 def test_parse_percentage_rejects_empty():
@@ -279,4 +483,46 @@ def test_parse_percentage_rejects_empty():
         ValueError,
         match="cannot be empty",
     ):
-        LinuxCapacityCollector._parse_percentage("")
+        LinuxCapacityCollector._parse_percentage(
+            ""
+        )
+
+
+def test_parse_number():
+    assert (
+        LinuxCapacityCollector._parse_number(
+            "1024.5",
+            "total_mb",
+        )
+        == 1024.5
+    )
+
+    assert (
+        LinuxCapacityCollector._parse_number(
+            500,
+            "used_mb",
+        )
+        == 500.0
+    )
+
+
+def test_parse_number_rejects_invalid_value():
+    with pytest.raises(
+        ValueError,
+        match="Invalid used_mb",
+    ):
+        LinuxCapacityCollector._parse_number(
+            "invalid",
+            "used_mb",
+        )
+
+
+def test_parse_number_rejects_negative_value():
+    with pytest.raises(
+        ValueError,
+        match="cannot be negative",
+    ):
+        LinuxCapacityCollector._parse_number(
+            -10,
+            "used_mb",
+        )

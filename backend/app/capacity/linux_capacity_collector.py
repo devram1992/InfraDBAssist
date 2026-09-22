@@ -9,12 +9,17 @@ from backend.app.tools.linux.tool import LinuxTool
 
 class LinuxCapacityCollector:
     """
-    Collect Linux server disk capacity metrics and persist them
+    Collect Linux filesystem capacity metrics and persist them
     into the generic capacity measurement store.
 
-    The current LinuxTool exposes server-level disk_usage.
-    Filesystem/path-level collection can be added later when
-    LinuxTool provides filesystem-specific data.
+    Each filesystem/mount point is stored as an independent
+    capacity resource.
+
+    First-class metrics:
+        - used_percent
+        - used_mb
+
+    Additional capacity information is stored in metadata.
     """
 
     def __init__(
@@ -36,7 +41,9 @@ class LinuxCapacityCollector:
         into a float percentage.
         """
         if value is None:
-            raise ValueError("Disk usage percentage cannot be empty.")
+            raise ValueError(
+                "Disk usage percentage cannot be empty."
+            )
 
         if isinstance(value, str):
             normalized = value.strip()
@@ -65,33 +72,66 @@ class LinuxCapacityCollector:
 
         if percentage < 0 or percentage > 100:
             raise ValueError(
-                f"Disk usage percentage must be between 0 and 100: "
+                "Disk usage percentage must be between 0 and 100: "
                 f"{percentage}"
             )
 
         return percentage
+
+    @staticmethod
+    def _parse_number(
+        value: object,
+        field_name: str,
+    ) -> float:
+        """
+        Convert a numeric value into float.
+        """
+        if value is None:
+            raise ValueError(
+                f"{field_name} cannot be empty."
+            )
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid {field_name}: {value!r}"
+            ) from exc
+
+        if number < 0:
+            raise ValueError(
+                f"{field_name} cannot be negative: {number}"
+            )
+
+        return number
 
     async def collect_disk_capacity(
         self,
         server: str | None = None,
     ) -> dict:
         """
-        Collect current Linux server disk utilization.
+        Collect current Linux filesystem utilization.
 
-        Current metric:
-            - used_percent
+        Each filesystem is persisted independently.
 
-        Current resource:
-            - disk
+        Example resources:
 
-        The target is the Linux server hostname.
+            /
+            /data
+            /u01
+
+        For every filesystem the collector stores:
+
+            used_percent
+            used_mb
         """
-
         request = self.linux_tool.build_request(
             server=server,
         )
 
-        result = await self.linux_tool.execute(request)
+        result = await self.linux_tool.execute(
+            request
+        )
 
         if result.get("status") != "success":
             raise RuntimeError(
@@ -106,38 +146,192 @@ class LinuxCapacityCollector:
             or "UNKNOWN"
         )
 
-        disk_usage = self._parse_percentage(
-            data.get("disk_usage")
-        )
-
-        observed_at = datetime.now(timezone.utc)
-
         environment = (
             Settings.environment
             or "development"
         )
 
-        measurement_id = self.repository.record_measurement(
-            observed_at=observed_at,
-            environment=environment,
-            source="linux",
-            target=server_name,
-            resource="disk",
-            metric="used_percent",
-            value=disk_usage,
-            unit="percent",
-            metadata={
-                "disk_usage": disk_usage,
-            },
+        observed_at = datetime.now(
+            timezone.utc
         )
 
-        measurement = {
-            "server": server_name,
-            "resource": "disk",
-            "used_percent": disk_usage,
-            "measurement_id": measurement_id,
-            "observed_at": observed_at,
-        }
+        # Keep the distinction between:
+        #
+        #   filesystems field missing
+        #       -> legacy response; use disk_usage
+        #
+        #   filesystems field present but empty
+        #       -> explicit empty filesystem response; fail
+        #
+        #   filesystems field populated
+        #       -> filesystem-aware collection
+        filesystem_payload = data.get(
+            "filesystems"
+        )
+
+        stored_measurements = []
+
+        if filesystem_payload is not None:
+            if not isinstance(
+                filesystem_payload,
+                list,
+            ):
+                raise ValueError(
+                    "Linux filesystem data must be a list."
+                )
+
+            if not filesystem_payload:
+                raise RuntimeError(
+                    "Linux disk capacity collection returned "
+                    "no filesystem measurements."
+                )
+
+            for filesystem in filesystem_payload:
+                if not isinstance(
+                    filesystem,
+                    dict,
+                ):
+                    raise ValueError(
+                        "Linux filesystem entry must be a dictionary."
+                    )
+
+                resource = (
+                    filesystem.get(
+                        "mount_point"
+                    )
+                    or "UNKNOWN"
+                )
+
+                total_mb = self._parse_number(
+                    filesystem.get(
+                        "total_mb",
+                        0,
+                    ),
+                    "total_mb",
+                )
+
+                used_mb = self._parse_number(
+                    filesystem.get(
+                        "used_mb",
+                        0,
+                    ),
+                    "used_mb",
+                )
+
+                available_mb = self._parse_number(
+                    filesystem.get(
+                        "available_mb",
+                        0,
+                    ),
+                    "available_mb",
+                )
+
+                used_percent = self._parse_percentage(
+                    filesystem.get(
+                        "used_percent"
+                    )
+                )
+
+                metadata = {
+                    "filesystem": filesystem.get(
+                        "filesystem"
+                    ),
+                    "total_mb": total_mb,
+                    "available_mb": available_mb,
+                    "used_mb": used_mb,
+                    "used_percent": used_percent,
+                }
+
+                used_percent_id = (
+                    self.repository.record_measurement(
+                        observed_at=observed_at,
+                        environment=environment,
+                        source="linux",
+                        target=server_name,
+                        resource=resource,
+                        metric="used_percent",
+                        value=used_percent,
+                        unit="percent",
+                        metadata=metadata,
+                    )
+                )
+
+                used_mb_id = (
+                    self.repository.record_measurement(
+                        observed_at=observed_at,
+                        environment=environment,
+                        source="linux",
+                        target=server_name,
+                        resource=resource,
+                        metric="used_mb",
+                        value=used_mb,
+                        unit="MB",
+                        metadata={
+                            **metadata,
+                            "used_percent": used_percent,
+                        },
+                    )
+                )
+
+                stored_measurements.append(
+                    {
+                        "server": server_name,
+                        "resource": resource,
+                        "filesystem": filesystem.get(
+                            "filesystem"
+                        ),
+                        "used_percent": used_percent,
+                        "used_mb": used_mb,
+                        "total_mb": total_mb,
+                        "available_mb": available_mb,
+                        "used_percent_measurement_id": (
+                            used_percent_id
+                        ),
+                        "used_mb_measurement_id": (
+                            used_mb_id
+                        ),
+                        "observed_at": observed_at,
+                    }
+                )
+
+        else:
+            # Backward-compatible path for older LinuxTool
+            # responses that do not contain a filesystems field.
+            disk_usage = self._parse_percentage(
+                data.get("disk_usage")
+            )
+
+            measurement_id = (
+                self.repository.record_measurement(
+                    observed_at=observed_at,
+                    environment=environment,
+                    source="linux",
+                    target=server_name,
+                    resource="disk",
+                    metric="used_percent",
+                    value=disk_usage,
+                    unit="percent",
+                    metadata={
+                        "disk_usage": disk_usage,
+                    },
+                )
+            )
+
+            stored_measurements.append(
+                {
+                    "server": server_name,
+                    "resource": "disk",
+                    "used_percent": disk_usage,
+                    "measurement_id": measurement_id,
+                    "observed_at": observed_at,
+                }
+            )
+
+        if not stored_measurements:
+            raise RuntimeError(
+                "Linux disk capacity collection returned "
+                "no filesystem measurements."
+            )
 
         return {
             "status": "success",
@@ -145,8 +339,8 @@ class LinuxCapacityCollector:
             "server": server_name,
             "metric": "capacity",
             "observed_at": observed_at,
-            "count": 1,
-            "measurements": [
-                measurement,
-            ],
+            "count": len(
+                stored_measurements
+            ),
+            "measurements": stored_measurements,
         }
