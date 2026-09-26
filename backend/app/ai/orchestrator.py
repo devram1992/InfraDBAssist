@@ -39,6 +39,10 @@ class AIOrchestrator:
         self.tool_registry.register(OpenShiftTool())
         self.tool_registry.register(CapacityForecastTool())
 
+    # =============================================================
+    # TOOL SELECTION
+    # =============================================================
+
     async def select_tool(
         self,
         question: str,
@@ -169,16 +173,19 @@ Capacity forecasting rules:
 
     - For Oracle tablespaces, use the canonical resource name
       without the word "tablespace".
+
       Example:
         "SYSTEM tablespace" -> "SYSTEM"
         "SYSAUX tablespace" -> "SYSAUX"
 
     - For storage, size, space consumed, storage growth,
       MB, GB, or "how much storage":
+
         metric = "used_mb"
         unit = "MB"
 
     - For utilization, percentage, %, or a threshold such as 99%:
+
         metric = "used_percent"
         unit = "percent"
 
@@ -211,7 +218,6 @@ Return:
         "threshold": 99
     }}
 }}
-
 20. Example:
 
 Question:
@@ -231,6 +237,178 @@ Return:
     }}
 }}
 
+Kubernetes rules:
+
+21. Select "kubernetes" when the engineer asks for CURRENT
+    Kubernetes cluster information.
+
+22. For "kubernetes", use these actions:
+
+    - "health" when asking for overall cluster health,
+      node health, or whether the cluster is healthy.
+
+    - "nodes" when asking specifically about Kubernetes nodes,
+      node status, readiness, versions, or runtime.
+
+    - "pods" when asking for pods, pod status, or pod inventory.
+
+    - "high_restart_pods" when asking about pods with high,
+      excessive, or frequent restarts.
+
+    - "pending_pods" when asking which pods are pending
+      or stuck in Pending state.
+
+    - "failed_pods" when asking which pods are failed.
+
+    - "pod_details" when asking for details about a specific pod.
+
+    - "logs" when asking for logs from a specific pod.
+
+    - "events" when asking for Kubernetes events.
+
+23. For "kubernetes":
+
+    - cluster identifies the Kubernetes cluster.
+
+    - action must be one of:
+
+      health,
+      nodes,
+      pods,
+      high_restart_pods,
+      pending_pods,
+      failed_pods,
+      pod_details,
+      logs,
+      events.
+
+    - namespace should only be extracted when explicitly provided.
+
+    - pod should be extracted when the question identifies
+      a specific pod for pod_details or logs.
+
+    - Do not invent generated Kubernetes pod suffixes.
+
+24. Examples of Kubernetes questions:
+
+    "Is Kubernetes cluster Docker Desktop healthy?"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "cluster": "Docker Desktop",
+            "action": "health"
+        }}
+    }}
+
+    "Show Kubernetes nodes"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "nodes"
+        }}
+    }}
+
+    "Which Kubernetes pods have high restart counts?"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "high_restart_pods"
+        }}
+    }}
+
+    "Show pending Kubernetes pods"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "pending_pods"
+        }}
+    }}
+
+    "Show failed pods in namespace default"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "failed_pods",
+            "namespace": "default"
+        }}
+    }}
+
+    "Show logs of validator pod in default namespace"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "logs",
+            "namespace": "default",
+            "pod": "validator"
+        }}
+    }}
+
+    "Show Kubernetes events in default namespace"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "action": "events",
+            "namespace": "default"
+        }}
+    }}
+
+Investigation rules:
+
+25. If the engineer asks WHY a Kubernetes pod is failing,
+    restarting, crashing, reporting errors, or asks to investigate
+    or diagnose a Kubernetes pod problem, select "kubernetes".
+
+26. For Kubernetes investigation questions:
+
+    - identify the pod from the question.
+
+    - identify namespace if explicitly provided.
+
+    - identify cluster if explicitly provided.
+
+    - do not invent a cluster or namespace in the normal
+      tool-selection response.
+
+    - investigation-specific local POC defaults are applied
+      later by the process() method.
+
+27. Investigation examples:
+
+    "Why is the validator pod failing?"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "pod": "validator"
+        }}
+    }}
+
+    "Investigate why validator pod is restarting in default"
+
+    ->
+    {{
+        "tool": "kubernetes",
+        "parameters": {{
+            "namespace": "default",
+            "pod": "validator"
+        }}
+    }}
+
 Engineer question:
 
 {question}
@@ -247,6 +425,7 @@ Engineer question:
             return None
 
         tool_name = result.get("tool")
+
         parameters = result.get(
             "parameters",
             {},
@@ -291,6 +470,10 @@ Engineer question:
             "parameters": parameters,
         }
 
+    # =============================================================
+    # CAPACITY NORMALIZATION
+    # =============================================================
+
     @staticmethod
     def _normalize_capacity_parameters(
         question: str,
@@ -311,6 +494,7 @@ Engineer question:
         )
 
         if isinstance(resource, str):
+
             resource = " ".join(
                 resource.split()
             )
@@ -346,6 +530,7 @@ Engineer question:
         # Derive metric only when the question clearly
         # identifies the required measurement.
         if not metric:
+
             threshold_requested = bool(
                 normalized.get("threshold")
             ) or bool(
@@ -395,6 +580,7 @@ Engineer question:
 
         # Derive unit from metric when unambiguous.
         if not unit and metric:
+
             if metric == "used_mb":
                 unit = "MB"
 
@@ -409,6 +595,7 @@ Engineer question:
             normalized.get("unit"),
             str,
         ):
+
             unit_lower = (
                 normalized["unit"]
                 .strip()
@@ -420,6 +607,7 @@ Engineer question:
                 "percent",
                 "percentage",
             }:
+
                 normalized["unit"] = "percent"
 
             elif unit_lower in {
@@ -427,6 +615,7 @@ Engineer question:
                 "megabyte",
                 "megabytes",
             }:
+
                 normalized["unit"] = "MB"
 
         # Normalize common metric variants.
@@ -434,6 +623,7 @@ Engineer question:
             normalized.get("metric"),
             str,
         ):
+
             metric_lower = (
                 normalized["metric"]
                 .strip()
@@ -447,6 +637,7 @@ Engineer question:
                 "storage_mb",
                 "storage_growth",
             }:
+
                 normalized["metric"] = "used_mb"
 
             elif metric_lower in {
@@ -456,11 +647,225 @@ Engineer question:
                 "utilisation",
                 "usage_percent",
             }:
+
                 normalized["metric"] = (
                     "used_percent"
                 )
 
         return normalized
+        # =============================================================
+    # INVESTIGATION DETECTION
+    # =============================================================
+
+    def _is_investigation_question(
+        self,
+        question: str,
+    ) -> bool:
+        """
+        Determine whether the engineer is asking for
+        multi-signal investigation or diagnosis.
+
+        Investigation questions require multiple live
+        signals to be collected and correlated before
+        generating the final answer.
+
+        This method only detects the investigation intent.
+        """
+
+        if not question or not question.strip():
+            return False
+
+        question_lower = (
+            question.lower()
+        )
+
+        investigation_patterns = [
+            r"\bwhy\b.*\b("
+            r"fail|failed|failure|"
+            r"restart|restarting|"
+            r"crash|crashing|"
+            r"error|issue|problem"
+            r")\b",
+
+            r"\bwhy\s+is\b",
+            r"\bwhy\s+are\b",
+            r"\binvestigate\b",
+            r"\binvestigation\b",
+            r"\bdiagnose\b",
+            r"\bdiagnosis\b",
+            r"\broot\s+cause\b",
+            r"\bwhat\s+is\s+causing\b",
+            r"\bwhat\s+caused\b",
+            r"\bfind\s+the\s+cause\b",
+        ]
+
+        return any(
+            re.search(
+                pattern,
+                question_lower,
+            )
+            for pattern in investigation_patterns
+        )
+
+    # =============================================================
+    # KUBERNETES MULTI-SIGNAL INVESTIGATION
+    # =============================================================
+
+    async def investigate_kubernetes(
+        self,
+        parameters: dict,
+    ) -> dict:
+        """
+        Perform a read-only multi-signal Kubernetes investigation.
+
+        Signals collected:
+
+        1. Pod details
+        2. Pod logs
+        3. Kubernetes events
+        """
+
+        if not isinstance(
+            parameters,
+            dict,
+        ):
+            return {
+                "status": "error",
+                "error": (
+                    "Investigation parameters must "
+                    "be a dictionary."
+                ),
+            }
+
+        cluster = parameters.get(
+            "cluster",
+            "Docker Desktop",
+        )
+
+        namespace = parameters.get(
+            "namespace",
+            "default",
+        )
+
+        pod = parameters.get(
+            "pod",
+        )
+
+        if not isinstance(
+            cluster,
+            str,
+        ) or not cluster.strip():
+
+            return {
+                "status": "error",
+                "error": (
+                    "Kubernetes cluster is required."
+                ),
+            }
+
+        if not isinstance(
+            namespace,
+            str,
+        ) or not namespace.strip():
+
+            return {
+                "status": "error",
+                "error": (
+                    "Kubernetes namespace is required."
+                ),
+            }
+
+        if not isinstance(
+            pod,
+            str,
+        ) or not pod.strip():
+
+            return {
+                "status": "error",
+                "error": (
+                    "A specific Kubernetes pod is required "
+                    "for this investigation."
+                ),
+            }
+
+        base_parameters = {
+            "cluster": cluster,
+            "namespace": namespace,
+            "pod": pod,
+        }
+
+        results = {}
+
+        # ---------------------------------------------------------
+        # Signal 1: Pod details
+        # ---------------------------------------------------------
+
+        results["pod_details"] = (
+            await self.execute_tool(
+                tool_name="kubernetes",
+                parameters={
+                    **base_parameters,
+                    "action": "pod_details",
+                },
+            )
+        )
+
+        # ---------------------------------------------------------
+        # Signal 2: Pod logs
+        # ---------------------------------------------------------
+
+        results["logs"] = (
+            await self.execute_tool(
+                tool_name="kubernetes",
+                parameters={
+                    **base_parameters,
+                    "action": "logs",
+                },
+            )
+        )
+
+        # ---------------------------------------------------------
+        # Signal 3: Kubernetes events
+        # ---------------------------------------------------------
+
+        results["events"] = (
+            await self.execute_tool(
+                tool_name="kubernetes",
+                parameters={
+                    "cluster": cluster,
+                    "namespace": namespace,
+                    "action": "events",
+                },
+            )
+        )
+
+        successful = all(
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get("status") == "success"
+            for result in results.values()
+        )
+
+        return {
+            "status": (
+                "success"
+                if successful
+                else "partial"
+            ),
+            "investigation": (
+                "kubernetes_pod_failure"
+            ),
+            "cluster": cluster,
+            "namespace": namespace,
+            "pod": pod,
+            "signals": results,
+        }
+
+    # =============================================================
+    # TOOL EXECUTION
+    # =============================================================
 
     async def execute_tool(
         self,
@@ -486,7 +891,10 @@ Engineer question:
         if parameters is None:
             parameters = {}
 
-        if not isinstance(parameters, dict):
+        if not isinstance(
+            parameters,
+            dict,
+        ):
             return {
                 "status": "error",
                 "error": (
@@ -496,6 +904,7 @@ Engineer question:
             }
 
         try:
+
             request = tool.build_request(
                 **parameters
             )
@@ -511,18 +920,24 @@ Engineer question:
             return result
 
         except ValueError as exc:
+
             return {
                 "status": "error",
                 "error": str(exc),
             }
 
         except Exception as exc:
+
             return {
                 "status": "error",
                 "error": (
                     f"Tool execution failed: {exc}"
                 ),
             }
+
+    # =============================================================
+    # KNOWLEDGE SEARCH
+    # =============================================================
 
     async def search_knowledge(
         self,
@@ -534,13 +949,19 @@ Engineer question:
         """
 
         try:
+
             return await self.rag.search(
                 question=question,
                 limit=limit,
             )
 
         except Exception:
+
             return []
+
+    # =============================================================
+    # ANSWER GENERATION
+    # =============================================================
 
     async def generate_answer(
         self,
@@ -570,6 +991,76 @@ Engineer question:
             knowledge_context = (
                 "No relevant internal knowledge was found."
             )
+
+        investigation_rules = ""
+
+        if tool_name == "kubernetes_investigation":
+            investigation_rules = """
+Investigation rules:
+
+11. For investigation questions, correlate the supplied
+    signals before answering.
+
+12. Treat pod details, logs, and Kubernetes events as
+    separate evidence sources.
+
+13. Identify findings that are directly supported by
+    the supplied evidence.
+
+14. Structure investigation answers using these headings:
+    - Root Cause
+    - Evidence
+    - Impact
+    - What Is Not Confirmed
+
+15. Under "Root Cause", state the most specific cause that
+    is directly supported by the supplied evidence.
+
+16. Under "Evidence", cite the concrete findings from
+    pod details, logs, and events that support the conclusion.
+
+17. Under "Impact", describe only the impact that is directly
+    supported by the supplied evidence.
+
+18. Under "What Is Not Confirmed", explicitly identify any
+    missing evidence or uncertainty that prevents a stronger
+    conclusion.
+
+19. Do not claim a root cause unless the supplied evidence
+    directly establishes causation. A symptom, status, event,
+    restart count, warning, or correlation is not by itself a
+    root cause.
+
+20. Kubernetes "BackOff", "CrashLoopBackOff", restart counts,
+    NotReady status, or similar lifecycle signals describe the
+    observed failure behavior. They must not be presented as the
+    underlying cause unless another supplied evidence source
+    explicitly establishes that causation.
+
+21. If the evidence only shows symptoms and does not establish
+    the underlying cause, the Root Cause section MUST state:
+    "The underlying root cause cannot be confirmed from the
+    available evidence."
+
+22. Do not treat a warning as causal merely because it appears
+    in the logs. State it as an observation unless the supplied
+    evidence explicitly connects the warning to the failure.
+
+23. Do not infer causes such as application defects, resource
+    exhaustion, dependency failure, network failure, DNS failure,
+    authentication failure, configuration problems, or service
+    outages unless the supplied evidence explicitly supports them.
+
+24. Under "Impact", report only directly observed or explicitly
+    supported effects. Do not predict possible downtime, degraded
+    performance, application impact, or business impact.
+
+25. Do not invent missing logs, events, metrics, conditions,
+    causes, impact, or remediation steps.
+
+26. Do not provide remediation commands unless they are present
+    in the supplied evidence or relevant internal knowledge.
+"""
 
         prompt = f"""
 You are InfraDB Assist, an AI assistant for Infrastructure
@@ -626,25 +1117,107 @@ Rules:
 10. Do not mention internal implementation details such as
     embeddings, vector databases, RAG, prompts, or orchestration.
 
+{investigation_rules}
+
 Answer:
 """
 
-        return await self.llm.generate(
+        answer = await self.llm.generate(
             prompt
         )
+
+        if tool_name == "kubernetes_investigation":
+            format_prompt = f"""
+Review and rewrite the investigation answer below into the EXACT
+structure required by InfraDB Assist.
+
+Use these headings exactly and in this order:
+
+Root Cause
+Evidence
+Impact
+What Is Not Confirmed
+
+Investigation evidence:
+{tool_result}
+
+Draft answer:
+{answer}
+
+Strict grounding rules:
+
+1. Use ONLY facts explicitly present in the Investigation evidence.
+2. Do not add facts from general model knowledge.
+3. Do not infer causation from correlation, status, event type,
+   restart count, warning, or lifecycle state.
+4. "BackOff", restart counts, NotReady, Waiting, or similar
+   Kubernetes signals describe observed failure behavior. They are
+   NOT the underlying root cause unless another supplied evidence
+   source explicitly establishes causation.
+5. If the evidence shows an application exception or explicit
+   failure message, report that exact observed failure mechanism.
+   Do not claim why the dependency or component is unavailable
+   unless the evidence explicitly establishes why.
+6. If the underlying root cause is not established, the Root Cause
+   section MUST contain exactly this statement:
+   "The underlying root cause cannot be confirmed from the available evidence."
+7. Under Evidence, list only concrete observations from pod details,
+   logs, and events.
+8. Under Impact, state only directly observed effects. Do not use
+   words such as "could", "may", "might", "likely", or predict
+   downtime, degraded performance, application impact, or business impact.
+9. Under What Is Not Confirmed, state only uncertainty that follows
+   directly from the evidence. Do NOT provide hypothetical causes
+   or examples such as network, DNS, authentication, configuration,
+   resource, dependency, or service problems unless that exact cause
+   is explicitly present in the evidence.
+10. Do not say that a warning is harmless or unrelated unless the
+    evidence explicitly proves that.
+11. Do not invent remediation steps or commands.
+12. Keep the answer concise and technical.
+13. Return ONLY the four headings and their content.
+"""
+
+            answer = await self.llm.generate(
+                format_prompt
+            )
+
+        return answer
+        # =============================================================
+    # MAIN ORCHESTRATION
+    # =============================================================
 
     async def process(
         self,
         question: str,
     ) -> dict:
         """
-        Complete orchestration flow:
+        Complete orchestration flow.
+
+        Normal question:
 
         Question
             ↓
         Tool Selection
             ↓
         Tool Execution
+            ↓
+        Knowledge Search
+            ↓
+        Grounded Answer
+
+        Investigation question:
+
+        Question
+            ↓
+        Investigation Detection
+            ↓
+        Tool Selection
+            ↓
+        Multi-Signal Investigation
+            ├── Pod Details
+            ├── Logs
+            └── Events
             ↓
         Knowledge Search
             ↓
@@ -659,8 +1232,79 @@ Answer:
         parameters = {}
         tool_result = None
 
-        if selected:
+        is_investigation = (
+            self._is_investigation_question(
+                question
+            )
+        )
+
+        # =========================================================
+        # MULTI-SIGNAL INVESTIGATION
+        # =========================================================
+
+        if (
+            is_investigation
+            and selected
+            and selected.get("tool") == "kubernetes"
+        ):
+
+            tool_name = "kubernetes"
+
+            parameters = dict(
+                selected.get(
+                    "parameters",
+                    {},
+                )
+            )
+
+            # -----------------------------------------------------
+            # Local POC defaults apply ONLY to investigations.
+            #
+            # These defaults are intentionally NOT applied inside
+            # select_tool(), because existing normal Kubernetes
+            # selection behavior must remain unchanged.
+            # -----------------------------------------------------
+
+            if not parameters.get("cluster"):
+                parameters["cluster"] = (
+                    "Docker Desktop"
+                )
+
+            if not parameters.get("namespace"):
+                parameters["namespace"] = "default"
+
+            # -----------------------------------------------------
+            # Extract pod deterministically if the LLM did not.
+            # -----------------------------------------------------
+
+            if not parameters.get("pod"):
+
+                pod_match = re.search(
+                    r"\b(?:pod|container)\s+"
+                    r"([a-zA-Z0-9._-]+)",
+                    question,
+                    flags=re.IGNORECASE,
+                )
+
+                if pod_match:
+                    parameters["pod"] = (
+                        pod_match.group(1)
+                    )
+
+            tool_result = (
+                await self.investigate_kubernetes(
+                    parameters
+                )
+            )
+
+        # =========================================================
+        # NORMAL SINGLE-TOOL EXECUTION
+        # =========================================================
+
+        elif selected:
+
             tool_name = selected["tool"]
+
             parameters = selected["parameters"]
 
             tool_result = await self.execute_tool(
@@ -668,16 +1312,31 @@ Answer:
                 parameters=parameters,
             )
 
+        # =========================================================
+        # KNOWLEDGE SEARCH
+        # =========================================================
+
         knowledge_results = (
             await self.search_knowledge(
                 question=question,
             )
         )
 
+        # =========================================================
+        # ANSWER GENERATION
+        # =========================================================
+
         answer_tool_name = (
-            tool_name
-            if tool_name
-            else "knowledge_only"
+            "kubernetes_investigation"
+            if (
+                is_investigation
+                and tool_result is not None
+            )
+            else (
+                tool_name
+                if tool_name
+                else "knowledge_only"
+            )
         )
 
         answer_tool_result = (

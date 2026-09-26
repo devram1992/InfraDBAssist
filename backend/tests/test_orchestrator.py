@@ -70,7 +70,6 @@ async def test_process_supports_knowledge_only_question(
     assert result["parameters"] == {}
     assert result["tool_result"] is None
     assert len(result["knowledge_results"]) == 1
-
     assert (
         result["answer"]
         == "Use the database backup SOP to verify completion."
@@ -167,20 +166,16 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
         result["selected_tool"]
         == "oracle_database"
     )
-
     assert result["parameters"] == {
         "database": "PRODDB",
     }
-
     assert (
         result["tool_result"]["database"]
         == "PRODDB"
     )
-
     assert len(
         result["knowledge_results"]
     ) == 1
-
     assert (
         result["answer"]
         == "PRODDB is OPEN."
@@ -666,7 +661,6 @@ async def test_process_executes_capacity_forecast(
         parameters=None,
     ):
         assert tool_name == "capacity_forecast"
-
         assert parameters == {
             "target": "FREEPDB1",
             "resource": "SYSTEM",
@@ -707,7 +701,6 @@ async def test_process_executes_capacity_forecast(
     ):
         assert tool_name == "capacity_forecast"
         assert tool_result["resource"] == "SYSTEM"
-
         assert (
             tool_result["forecast"]["current_value"]
             == 98.52
@@ -747,19 +740,541 @@ async def test_process_executes_capacity_forecast(
     )
 
     assert result["status"] == "success"
-
     assert (
         result["selected_tool"]
         == "capacity_forecast"
     )
-
     assert result["parameters"] == {
         "target": "FREEPDB1",
         "resource": "SYSTEM",
         "threshold": 99,
     }
-
     assert (
         result["tool_result"]["resource"]
         == "SYSTEM"
+    )
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_kubernetes_health_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "cluster": "Docker Desktop",
+                "action": "health",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Is the Docker Desktop Kubernetes cluster healthy?"
+    )
+
+    assert result == {
+        "tool": "kubernetes",
+        "parameters": {
+            "cluster": "Docker Desktop",
+            "action": "health",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_kubernetes_high_restart_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "action": "high_restart_pods",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Which Kubernetes pods have high restart counts?"
+    )
+
+    assert result == {
+        "tool": "kubernetes",
+        "parameters": {
+            "action": "high_restart_pods",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_kubernetes_pending_action(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "action": "pending_pods",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show pending Kubernetes pods."
+    )
+
+    assert result == {
+        "tool": "kubernetes",
+        "parameters": {
+            "action": "pending_pods",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_select_tool_accepts_kubernetes_failed_action_with_namespace(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "action": "failed_pods",
+                "namespace": "default",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show failed pods in namespace default."
+    )
+
+    assert result == {
+        "tool": "kubernetes",
+        "parameters": {
+            "action": "failed_pods",
+            "namespace": "default",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_investigate_kubernetes_collects_all_signals(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    calls = []
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+    ):
+        calls.append(
+            (
+                tool_name,
+                parameters,
+            )
+        )
+
+        action = parameters["action"]
+
+        if action == "pod_details":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "pod": "validator-abc123",
+                    "namespace": "default",
+                    "status": "CrashLoopBackOff",
+                },
+            }
+
+        if action == "logs":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "pod": "validator-abc123",
+                    "namespace": "default",
+                    "logs": {
+                        "content": "Kafka not available after retries"
+                    },
+                },
+            }
+
+        if action == "events":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "namespace": "default",
+                    "events": {
+                        "count": 1,
+                        "items": [
+                            {
+                                "type": "Warning",
+                                "reason": "BackOff",
+                                "message": (
+                                    "Back-off restarting failed "
+                                    "container validator"
+                                ),
+                            }
+                        ],
+                    },
+                },
+            }
+
+        raise AssertionError(
+            f"Unexpected action: {action}"
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    result = await orchestrator.investigate_kubernetes(
+        {
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+        }
+    )
+
+    assert result["status"] == "success"
+    assert result["investigation"] == "kubernetes_pod_failure"
+    assert result["cluster"] == "Docker Desktop"
+    assert result["namespace"] == "default"
+    assert result["pod"] == "validator"
+
+    assert set(result["signals"]) == {
+        "pod_details",
+        "logs",
+        "events",
+    }
+
+    assert calls == [
+        (
+            "kubernetes",
+            {
+                "cluster": "Docker Desktop",
+                "action": "pod_details",
+                "namespace": "default",
+                "pod": "validator",
+            },
+        ),
+        (
+            "kubernetes",
+            {
+                "cluster": "Docker Desktop",
+                "action": "logs",
+                "namespace": "default",
+                "pod": "validator",
+            },
+        ),
+        (
+            "kubernetes",
+            {
+                "cluster": "Docker Desktop",
+                "action": "events",
+                "namespace": "default",
+            },
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_investigate_kubernetes_returns_partial_when_signal_fails(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+    ):
+        action = parameters["action"]
+
+        if action == "pod_details":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "pod": "validator-abc123",
+                    "namespace": "default",
+                    "status": "CrashLoopBackOff",
+                },
+            }
+
+        if action == "logs":
+            return {
+                "tool": "kubernetes",
+                "status": "error",
+                "error": "Unable to read pod logs.",
+            }
+
+        if action == "events":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "namespace": "default",
+                    "events": {
+                        "count": 1,
+                        "items": [
+                            {
+                                "type": "Warning",
+                                "reason": "BackOff",
+                                "message": (
+                                    "Back-off restarting failed "
+                                    "container validator"
+                                ),
+                            }
+                        ],
+                    },
+                },
+            }
+
+        raise AssertionError(
+            f"Unexpected action: {action}"
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    result = await orchestrator.investigate_kubernetes(
+        {
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+        }
+    )
+
+    assert result["status"] == "partial"
+    assert result["investigation"] == "kubernetes_pod_failure"
+    assert len(result["signals"]) == 3
+    assert (
+        result["signals"]["logs"]["status"]
+        == "error"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_investigation_applies_local_kubernetes_defaults(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_select_tool(question):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "pod": "validator",
+            },
+        }
+
+    async def mock_investigate_kubernetes(parameters):
+        assert parameters == {
+            "pod": "validator",
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+        }
+
+        return {
+            "status": "success",
+            "investigation": "kubernetes_pod_failure",
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+            "signals": {
+                "pod_details": {
+                    "status": "success",
+                },
+                "logs": {
+                    "status": "success",
+                },
+                "events": {
+                    "status": "success",
+                },
+            },
+        }
+
+    async def mock_search_knowledge(
+        question,
+        limit=5,
+    ):
+        return []
+
+    async def mock_generate_answer(
+        question,
+        tool_name,
+        tool_result,
+        knowledge_results,
+    ):
+        assert tool_name == "kubernetes_investigation"
+        assert tool_result["investigation"] == (
+            "kubernetes_pod_failure"
+        )
+        return "Investigation completed."
+
+    monkeypatch.setattr(
+        orchestrator,
+        "select_tool",
+        mock_select_tool,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "investigate_kubernetes",
+        mock_investigate_kubernetes,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "search_knowledge",
+        mock_search_knowledge,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "generate_answer",
+        mock_generate_answer,
+    )
+
+    result = await orchestrator.process(
+        "Why is the validator pod failing?"
+    )
+
+    assert result["status"] == "success"
+    assert result["selected_tool"] == "kubernetes"
+    assert result["parameters"] == {
+        "pod": "validator",
+        "cluster": "Docker Desktop",
+        "namespace": "default",
+    }
+    assert result["tool_result"]["investigation"] == (
+        "kubernetes_pod_failure"
+    )
+    assert result["answer"] == (
+        "Investigation completed."
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_keeps_normal_kubernetes_question_as_single_tool_execution(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_select_tool(question):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "action": "pods",
+            },
+        }
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+    ):
+        assert tool_name == "kubernetes"
+        assert parameters == {
+            "action": "pods",
+        }
+
+        return {
+            "tool": "kubernetes",
+            "status": "success",
+            "data": {
+                "pods": [],
+            },
+        }
+
+    async def mock_search_knowledge(
+        question,
+        limit=5,
+    ):
+        return []
+
+    async def mock_generate_answer(
+        question,
+        tool_name,
+        tool_result,
+        knowledge_results,
+    ):
+        assert tool_name == "kubernetes"
+        assert tool_result["status"] == "success"
+        return "No Kubernetes pods found."
+
+    monkeypatch.setattr(
+        orchestrator,
+        "select_tool",
+        mock_select_tool,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "search_knowledge",
+        mock_search_knowledge,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "generate_answer",
+        mock_generate_answer,
+    )
+
+    result = await orchestrator.process(
+        "Show Kubernetes pods."
+    )
+
+    assert result["status"] == "success"
+    assert result["selected_tool"] == "kubernetes"
+    assert result["parameters"] == {
+        "action": "pods",
+    }
+    assert result["tool_result"]["status"] == "success"
+    assert result["answer"] == (
+        "No Kubernetes pods found."
     )
