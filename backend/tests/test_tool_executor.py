@@ -3,6 +3,7 @@ import pytest
 from backend.app.auth.authorization import AuthorizationService
 from backend.app.tools.base import Tool
 from backend.app.tools.executor import ToolExecutor
+from backend.app.auth.user_context import UserContext
 
 
 class DummyTool(Tool):
@@ -109,3 +110,48 @@ async def test_executor_returns_tool_result():
         "status": "executed",
         "request": {"target": "TESTDB"},
     }
+@pytest.mark.asyncio
+async def test_executor_accepts_user_context():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+    tool = DummyTool()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="engineer",
+        permissions={"database.read"},
+    )
+
+    result = await executor.execute(
+        tool=tool,
+        request={"target": "TESTDB"},
+        user_context=user_context,
+    )
+
+    assert result == {
+        "status": "executed",
+        "request": {"target": "TESTDB"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_executor_rejects_user_context_without_permission():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+    tool = DummyTool()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="engineer",
+        permissions={"infrastructure.read"},
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="database.read",
+    ):
+        await executor.execute(
+            tool=tool,
+            request={"target": "TESTDB"},
+            user_context=user_context,
+        )

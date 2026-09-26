@@ -18,6 +18,7 @@ from backend.app.tools.kubernetes.tool import KubernetesTool
 from backend.app.tools.openshift.tool import OpenShiftTool
 from backend.app.tools.capacity.tool import CapacityForecastTool
 from backend.app.auth.authorization import AuthorizationService
+from backend.app.auth.user_context import UserContext
 from backend.app.tools.executor import ToolExecutor
 
 
@@ -35,15 +36,21 @@ class AIOrchestrator:
             self.authorization
         )
 
-        # Temporary POC permission set.
-        # These permissions will later come from the
-        # authenticated user's RBAC context.
-        self.user_permissions = {
-            "database.read",
-            "infrastructure.read",
-            "kubernetes.read",
-            "capacity.read",
-        }
+        # Temporary POC user context.
+        #
+        # In the next phase, this context will be populated
+        # from the authenticated user's RBAC identity.
+        self.user_context = UserContext(
+            user_id="poc-user",
+            username="engineer",
+            roles={"database_engineer"},
+            permissions={
+                "database.read",
+                "infrastructure.read",
+                "kubernetes.read",
+                "capacity.read",
+            },
+        )
 
         # Register available tools
         self.tool_registry.register(OracleTool())
@@ -930,7 +937,7 @@ Engineer question:
             result = await self.tool_executor.execute(
                 tool=tool,
                 request=request,
-                user_permissions=self.user_permissions,
+                user_context=self.user_context,
             )
 
             return result
