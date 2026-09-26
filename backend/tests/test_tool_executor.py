@@ -79,3 +79,33 @@ async def test_executor_rejects_non_tool():
             request={},
             user_permissions={"database.read"},
         )
+@pytest.mark.asyncio
+async def test_executor_rejects_missing_permissions():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+    tool = DummyTool()
+
+    with pytest.raises(PermissionError, match="database.read"):
+        await executor.execute(
+            tool=tool,
+            request={"target": "TESTDB"},
+            user_permissions=set(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_executor_returns_tool_result():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+    tool = DummyTool()
+
+    result = await executor.execute(
+        tool=tool,
+        request={"target": "TESTDB"},
+        user_permissions={"database.read"},
+    )
+
+    assert result == {
+        "status": "executed",
+        "request": {"target": "TESTDB"},
+    }

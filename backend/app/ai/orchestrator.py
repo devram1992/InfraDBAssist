@@ -17,6 +17,8 @@ from backend.app.tools.cloudera.tool import ClouderaTool
 from backend.app.tools.kubernetes.tool import KubernetesTool
 from backend.app.tools.openshift.tool import OpenShiftTool
 from backend.app.tools.capacity.tool import CapacityForecastTool
+from backend.app.auth.authorization import AuthorizationService
+from backend.app.tools.executor import ToolExecutor
 
 
 class AIOrchestrator:
@@ -26,6 +28,22 @@ class AIOrchestrator:
 
         self.llm = OllamaClient()
         self.rag = RAGService()
+
+        # Authorization and controlled tool execution
+        self.authorization = AuthorizationService()
+        self.tool_executor = ToolExecutor(
+            self.authorization
+        )
+
+        # Temporary POC permission set.
+        # These permissions will later come from the
+        # authenticated user's RBAC context.
+        self.user_permissions = {
+            "database.read",
+            "infrastructure.read",
+            "kubernetes.read",
+            "capacity.read",
+        }
 
         # Register available tools
         self.tool_registry.register(OracleTool())
@@ -909,15 +927,20 @@ Engineer question:
                 **parameters
             )
 
-            tool.validate_request(
-                request
-            )
-
-            result = await tool.execute(
-                request
+            result = await self.tool_executor.execute(
+                tool=tool,
+                request=request,
+                user_permissions=self.user_permissions,
             )
 
             return result
+
+        except PermissionError as exc:
+
+            return {
+                "status": "error",
+                "error": str(exc),
+            }
 
         except ValueError as exc:
 
