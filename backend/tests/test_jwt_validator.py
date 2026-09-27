@@ -191,7 +191,7 @@ async def test_empty_token_is_rejected(rsa_keys):
 def test_validator_requires_signing_key():
     with pytest.raises(
         ValueError,
-        match="signing_key is required",
+        match="Either signing_key or jwks_client is required",
     ):
         JWTValidator(
             signing_key="",
