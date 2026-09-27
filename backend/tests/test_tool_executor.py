@@ -1,9 +1,10 @@
 import pytest
 
 from backend.app.auth.authorization import AuthorizationService
+from backend.app.auth.role_permissions import RolePermissionMapper
+from backend.app.auth.user_context import UserContext
 from backend.app.tools.base import Tool
 from backend.app.tools.executor import ToolExecutor
-from backend.app.auth.user_context import UserContext
 
 
 class DummyTool(Tool):
@@ -61,7 +62,10 @@ async def test_executor_validates_request_before_execution():
     executor = ToolExecutor(auth)
     tool = InvalidRequestTool()
 
-    with pytest.raises(ValueError, match="Invalid request"):
+    with pytest.raises(
+        ValueError,
+        match="Invalid request",
+    ):
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
@@ -80,13 +84,18 @@ async def test_executor_rejects_non_tool():
             request={},
             user_permissions={"database.read"},
         )
+
+
 @pytest.mark.asyncio
 async def test_executor_rejects_missing_permissions():
     auth = AuthorizationService()
     executor = ToolExecutor(auth)
     tool = DummyTool()
 
-    with pytest.raises(PermissionError, match="database.read"):
+    with pytest.raises(
+        PermissionError,
+        match="database.read",
+    ):
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
@@ -110,6 +119,8 @@ async def test_executor_returns_tool_result():
         "status": "executed",
         "request": {"target": "TESTDB"},
     }
+
+
 @pytest.mark.asyncio
 async def test_executor_accepts_user_context():
     auth = AuthorizationService()
@@ -153,5 +164,75 @@ async def test_executor_rejects_user_context_without_permission():
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
+            user_context=user_context,
+        )
+
+
+@pytest.mark.asyncio
+async def test_database_engineer_can_execute_database_tool():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+    tool = DummyTool()
+
+    mapper = RolePermissionMapper()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="database-engineer",
+        roles={"database_engineer"},
+        permissions=mapper.get_permissions(
+            {"database_engineer"}
+        ),
+    )
+
+    result = await executor.execute(
+        tool=tool,
+        request={"target": "TESTDB"},
+        user_context=user_context,
+    )
+
+    assert result["status"] == "executed"
+
+
+@pytest.mark.asyncio
+async def test_database_engineer_cannot_execute_kubernetes_tool():
+    auth = AuthorizationService()
+    executor = ToolExecutor(auth)
+
+    class KubernetesDummyTool(Tool):
+        name = "kubernetes_dummy"
+        description = "Dummy Kubernetes tool"
+        permission = "kubernetes.read"
+        read_only = True
+        parameters = {}
+
+        async def execute(
+            self,
+            request: dict,
+        ) -> dict:
+            return {
+                "status": "executed",
+            }
+
+    tool = KubernetesDummyTool()
+
+    mapper = RolePermissionMapper()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="database-engineer",
+        roles={"database_engineer"},
+        permissions=mapper.get_permissions(
+            {"database_engineer"}
+        ),
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="kubernetes.read",
+    ):
+        await executor.execute(
+            tool=tool,
+            request={},
             user_context=user_context,
         )
