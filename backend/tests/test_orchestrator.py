@@ -93,7 +93,8 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     async def mock_execute_tool(
         tool_name,
         parameters=None,
-    ):
+        user_context=None,
+    ): 
         assert tool_name == "oracle_database"
         assert parameters == {
             "database": "PRODDB",
@@ -659,7 +660,8 @@ async def test_process_executes_capacity_forecast(
     async def mock_execute_tool(
         tool_name,
         parameters=None,
-    ):
+        user_context=None,
+    ): 
         assert tool_name == "capacity_forecast"
         assert parameters == {
             "target": "FREEPDB1",
@@ -898,7 +900,8 @@ async def test_investigate_kubernetes_collects_all_signals(
     async def mock_execute_tool(
         tool_name,
         parameters=None,
-    ):
+        user_context=None,
+    ): 
         calls.append(
             (
                 tool_name,
@@ -1023,7 +1026,8 @@ async def test_investigate_kubernetes_returns_partial_when_signal_fails(
     async def mock_execute_tool(
         tool_name,
         parameters=None,
-    ):
+        user_context=None,
+    ): 
         action = parameters["action"]
 
         if action == "pod_details":
@@ -1107,7 +1111,10 @@ async def test_process_investigation_applies_local_kubernetes_defaults(
             },
         }
 
-    async def mock_investigate_kubernetes(parameters):
+    async def mock_investigate_kubernetes(
+        parameters,
+        user_context=None,
+    ): 
         assert parameters == {
             "pod": "validator",
             "cluster": "Docker Desktop",
@@ -1211,7 +1218,8 @@ async def test_process_keeps_normal_kubernetes_question_as_single_tool_execution
     async def mock_execute_tool(
         tool_name,
         parameters=None,
-    ):
+        user_context=None,
+    ): 
         assert tool_name == "kubernetes"
         assert parameters == {
             "action": "pods",

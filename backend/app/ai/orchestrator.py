@@ -739,6 +739,7 @@ Engineer question:
     async def investigate_kubernetes(
         self,
         parameters: dict,
+        user_context: UserContext | None = None,
     ) -> dict:
         """
         Perform a read-only multi-signal Kubernetes investigation.
@@ -896,6 +897,7 @@ Engineer question:
         self,
         tool_name: str,
         parameters: dict | None = None,
+        user_context: UserContext | None = None,
     ) -> dict:
         """
         Execute a registered tool using the supplied parameters.
@@ -934,10 +936,13 @@ Engineer question:
                 **parameters
             )
 
+            if user_context is None:
+                user_context = self.user_context
+
             result = await self.tool_executor.execute(
                 tool=tool,
                 request=request,
-                user_context=self.user_context,
+                user_context=user_context,
             )
 
             return result
@@ -1220,6 +1225,7 @@ Strict grounding rules:
     async def process(
         self,
         question: str,
+        user_context: UserContext | None = None,
     ) -> dict:
         """
         Complete orchestration flow.
@@ -1253,6 +1259,9 @@ Strict grounding rules:
             ↓
         Grounded Answer
         """
+
+        if user_context is None:
+            user_context = self.user_context
 
         selected = await self.select_tool(
             question
@@ -1323,7 +1332,8 @@ Strict grounding rules:
 
             tool_result = (
                 await self.investigate_kubernetes(
-                    parameters
+                    parameters,
+                    user_context=user_context,
                 )
             )
 
@@ -1340,6 +1350,7 @@ Strict grounding rules:
             tool_result = await self.execute_tool(
                 tool_name=tool_name,
                 parameters=parameters,
+                user_context=user_context,
             )
 
         # =========================================================
