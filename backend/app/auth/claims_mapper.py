@@ -36,6 +36,40 @@ class ClaimsMapper:
             claims.get("roles", [])
         )
 
+        realm_access = claims.get(
+            "realm_access",
+            {}
+        )
+
+        if isinstance(realm_access, dict):
+            realm_roles = realm_access.get(
+                "roles",
+                []
+            )
+
+            if isinstance(realm_roles, list):
+                roles.update(realm_roles)
+
+        resource_access = claims.get(
+            "resource_access",
+            {}
+        )
+
+        if isinstance(resource_access, dict):
+            client_access = resource_access.get(
+                "infradb-assist",
+                {}
+            )
+
+            if isinstance(client_access, dict):
+                client_roles = client_access.get(
+                    "roles",
+                    []
+                )
+
+                if isinstance(client_roles, list):
+                    roles.update(client_roles)
+
         permissions = set(
             claims.get("permissions", [])
         )

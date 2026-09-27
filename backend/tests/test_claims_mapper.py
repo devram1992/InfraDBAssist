@@ -85,3 +85,51 @@ def test_invalid_claims_are_rejected():
         match="Claims must be a dictionary",
     ):
         mapper.to_user_context("invalid")
+def test_keycloak_realm_roles_are_mapped():
+
+    mapper = ClaimsMapper()
+
+    context = mapper.to_user_context(
+        {
+            "sub": "user-003",
+            "preferred_username": "keycloak-user",
+            "realm_access": {
+                "roles": [
+                    "database_engineer",
+                    "platform_engineer",
+                ],
+            },
+        }
+    )
+
+    assert context.user_id == "user-003"
+    assert context.username == "keycloak-user"
+    assert context.roles == {
+        "database_engineer",
+        "platform_engineer",
+    }
+
+
+def test_keycloak_client_roles_are_mapped():
+
+    mapper = ClaimsMapper()
+
+    context = mapper.to_user_context(
+        {
+            "sub": "user-004",
+            "preferred_username": "keycloak-client-user",
+            "resource_access": {
+                "infradb-assist": {
+                    "roles": [
+                        "database_engineer",
+                    ],
+                },
+            },
+        }
+    )
+
+    assert context.user_id == "user-004"
+    assert context.username == "keycloak-client-user"
+    assert context.roles == {
+        "database_engineer",
+    }
