@@ -1,3 +1,6 @@
+from backend.app.auth.role_permissions import (
+    RolePermissionMapper,
+)
 from backend.app.auth.user_context import UserContext
 
 
@@ -6,6 +9,15 @@ class ClaimsMapper:
     Maps validated identity-provider claims into
     the application's UserContext.
     """
+
+    def __init__(
+        self,
+        role_permission_mapper: RolePermissionMapper | None = None,
+    ):
+        self.role_permission_mapper = (
+            role_permission_mapper
+            or RolePermissionMapper()
+        )
 
     def to_user_context(
         self,
@@ -70,8 +82,18 @@ class ClaimsMapper:
                 if isinstance(client_roles, list):
                     roles.update(client_roles)
 
-        permissions = set(
+        role_permissions = (
+            self.role_permission_mapper.get_permissions(
+                roles
+            )
+        )
+
+        claim_permissions = set(
             claims.get("permissions", [])
+        )
+
+        permissions = (
+            role_permissions | claim_permissions
         )
 
         return UserContext(
