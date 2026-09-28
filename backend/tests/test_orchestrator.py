@@ -10,7 +10,7 @@ async def test_process_supports_knowledge_only_question(
 ):
     orchestrator = AIOrchestrator()
 
-    async def mock_select_tool(question):
+    async def mock_select_tool(question, user_context=None):
         return None
 
     async def mock_search_knowledge(
@@ -83,7 +83,7 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
 ):
     orchestrator = AIOrchestrator()
 
-    async def mock_select_tool(question):
+    async def mock_select_tool(question, user_context=None):
         return {
             "tool": "oracle_database",
             "parameters": {
@@ -648,7 +648,7 @@ async def test_process_executes_capacity_forecast(
 ):
     orchestrator = AIOrchestrator()
 
-    async def mock_select_tool(question):
+    async def mock_select_tool(question, user_context=None):
         return {
             "tool": "capacity_forecast",
             "parameters": {
@@ -1104,7 +1104,7 @@ async def test_process_investigation_applies_local_kubernetes_defaults(
 ):
     orchestrator = AIOrchestrator()
 
-    async def mock_select_tool(question):
+    async def mock_select_tool(question, user_context=None):
         return {
             "tool": "kubernetes",
             "parameters": {
@@ -1208,7 +1208,7 @@ async def test_process_keeps_normal_kubernetes_question_as_single_tool_execution
 ):
     orchestrator = AIOrchestrator()
 
-    async def mock_select_tool(question):
+    async def mock_select_tool(question, user_context=None):
         return {
             "tool": "kubernetes",
             "parameters": {

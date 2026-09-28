@@ -71,6 +71,7 @@ class AIOrchestrator:
     async def select_tool(
         self,
         question: str,
+        user_context: UserContext | None = None,
     ) -> dict | None:
         """
         Use the local LLM to select the most appropriate tool
@@ -82,7 +83,21 @@ class AIOrchestrator:
                 "Question must not be empty."
             )
 
-        tools = self.tool_registry.get_tool_metadata()
+        if user_context is None:
+            user_context = self.user_context
+
+        authorized_tools = [
+            tool
+            for tool in self.tool_registry.list_tools()
+            if user_context.has_permission(
+                tool.permission
+            )
+        ]
+
+        tools = [
+            tool.get_metadata()
+            for tool in authorized_tools
+        ]
 
         tool_list = "\n".join(
             [
@@ -467,6 +482,11 @@ Engineer question:
         )
 
         if tool is None:
+            return None
+
+        if not user_context.has_permission(
+            tool.permission
+        ):
             return None
 
         if not isinstance(parameters, dict):
@@ -1264,7 +1284,8 @@ Strict grounding rules:
             user_context = self.user_context
 
         selected = await self.select_tool(
-            question
+            question,
+            user_context=user_context,
         )
 
         tool_name = None
