@@ -853,6 +853,7 @@ Engineer question:
                     **base_parameters,
                     "action": "pod_details",
                 },
+                user_context=user_context,
             )
         )
 
@@ -867,6 +868,7 @@ Engineer question:
                     **base_parameters,
                     "action": "logs",
                 },
+                user_context=user_context,
             )
         )
 
@@ -882,6 +884,7 @@ Engineer question:
                     "namespace": namespace,
                     "action": "events",
                 },
+                user_context=user_context,
             )
         )
 

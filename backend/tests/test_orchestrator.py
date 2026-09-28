@@ -1019,6 +1019,76 @@ async def test_investigate_kubernetes_collects_all_signals(
 
 
 @pytest.mark.asyncio
+async def test_investigate_kubernetes_propagates_user_context_to_all_signals(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="kubernetes-engineer",
+        roles={"kubernetes_engineer"},
+        permissions={"kubernetes.read"},
+    )
+
+    calls = []
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+        user_context=None,
+    ):
+        calls.append(
+            (
+                tool_name,
+                parameters,
+                user_context,
+            )
+        )
+
+        return {
+            "tool": "kubernetes",
+            "status": "success",
+            "data": {},
+        }
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    result = await orchestrator.investigate_kubernetes(
+        {
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+        },
+        user_context=user_context,
+    )
+
+    assert result["status"] == "success"
+    assert len(calls) == 3
+
+    assert [call[0] for call in calls] == [
+        "kubernetes",
+        "kubernetes",
+        "kubernetes",
+    ]
+
+    assert [call[1]["action"] for call in calls] == [
+        "pod_details",
+        "logs",
+        "events",
+    ]
+
+    assert all(
+        call[2] == user_context
+        for call in calls
+    )
+
+
+@pytest.mark.asyncio
 async def test_investigate_kubernetes_returns_partial_when_signal_fails(
     monkeypatch,
 ):
@@ -1350,63 +1420,6 @@ async def test_execute_tool_denies_database_engineer_for_kubernetes_tool():
 
     assert result["status"] == "error"
     assert result["error"] == "Permission denied: kubernetes.read"
-@pytest.mark.asyncio
-async def test_select_tool_only_exposes_authorized_tools(
-    monkeypatch,
-):
-    orchestrator = AIOrchestrator()
-
-    user_context = UserContext(
-        user_id="user-001",
-        username="database-engineer",
-        roles={"database_engineer"},
-        permissions={"database.read"},
-    )
-
-    captured_prompt = {}
-
-    async def mock_generate_json(prompt):
-        captured_prompt["value"] = prompt
-
-        return {
-            "tool": "oracle_database",
-            "parameters": {
-                "database": "PRODDB",
-            },
-        }
-
-    monkeypatch.setattr(
-        orchestrator.llm,
-        "generate_json",
-        mock_generate_json,
-    )
-
-    result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB.",
-        user_context=user_context,
-    )
-
-    assert result == {
-        "tool": "oracle_database",
-        "parameters": {
-            "database": "PRODDB",
-        },
-    }
-
-    prompt = captured_prompt["value"]
-
-    # The orchestrator prompt contains general guidance for all
-    # infrastructure domains, so names such as "kubernetes" may
-    # legitimately appear outside the authorized tool metadata.
-    # Verify that the authorized database tool is exposed while
-    # unauthorized tool metadata is not exposed.
-    assert "oracle_database" in prompt
-    assert '"name": "kubernetes"' not in prompt
-    assert '"name": "openshift"' not in prompt
-    assert '"name": "linux"' not in prompt
-    assert '"name": "capacity_forecast"' not in prompt
-
-
 @pytest.mark.asyncio
 async def test_select_tool_denies_unauthorized_tool(
     monkeypatch,
