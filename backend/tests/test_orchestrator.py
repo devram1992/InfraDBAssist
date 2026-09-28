@@ -1350,4 +1350,37 @@ async def test_execute_tool_denies_database_engineer_for_kubernetes_tool():
 
     assert result["status"] == "error"
     assert result["error"] == "Permission denied: kubernetes.read"
+@pytest.mark.asyncio
+async def test_select_tool_denies_unauthorized_tool(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
 
+    user_context = UserContext(
+        user_id="user-001",
+        username="db-engineer",
+        roles={"database_engineer"},
+        permissions={"database.read"},
+    )
+
+    async def mock_generate_json(prompt):
+        return {
+            "tool": "kubernetes",
+            "parameters": {
+                "cluster": "Docker Desktop",
+                "action": "pods",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Show Kubernetes pods.",
+        user_context=user_context,
+    )
+
+    assert result is None
