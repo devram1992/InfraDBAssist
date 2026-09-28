@@ -12,12 +12,10 @@ from backend.app.main import app
 class DummyAuthenticationService(
     AuthenticationService
 ):
-
     async def authenticate(
         self,
         credentials: dict,
     ) -> UserContext:
-
         token = credentials.get("token")
 
         if token == "invalid-token":
@@ -45,7 +43,6 @@ client = TestClient(app)
 
 
 def test_health_endpoint_is_public():
-
     response = client.get(
         "/health"
     )
@@ -58,7 +55,6 @@ def test_health_endpoint_is_public():
 
 
 def test_chat_endpoint_requires_authentication():
-
     response = client.post(
         "/api/v1/chat",
         json={
@@ -70,7 +66,6 @@ def test_chat_endpoint_requires_authentication():
 
 
 def test_chat_endpoint_rejects_invalid_bearer_token():
-
     response = client.post(
         "/api/v1/chat",
         headers={
@@ -85,7 +80,6 @@ def test_chat_endpoint_rejects_invalid_bearer_token():
 
 
 def test_chat_endpoint_accepts_authenticated_request():
-
     app.state.orchestrator.process = AsyncMock(
         return_value={
             "answer": "Database is healthy.",
@@ -109,5 +103,15 @@ def test_chat_endpoint_accepts_authenticated_request():
     }
 
     app.state.orchestrator.process.assert_awaited_once_with(
-        "Check database health"
+        "Check database health",
+        user_context=UserContext(
+            user_id="user-001",
+            username="engineer",
+            roles={
+                "database_engineer",
+            },
+            permissions={
+                "database.read",
+            },
+        ),
     )
