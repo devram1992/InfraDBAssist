@@ -115,3 +115,29 @@ def test_chat_endpoint_accepts_authenticated_request():
             },
         ),
     )
+
+def test_application_startup_initializes_keycloak_authentication(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "KEYCLOAK_SERVER_URL",
+        "https://keycloak.example.com",
+    )
+    monkeypatch.setenv(
+        "KEYCLOAK_REALM",
+        "infradb",
+    )
+    monkeypatch.setenv(
+        "KEYCLOAK_CLIENT_ID",
+        "infradb-assist",
+    )
+
+    from backend.app.auth.jwt_authentication import (
+        JWTAuthenticationService,
+    )
+
+    with TestClient(app):
+        assert isinstance(
+            app.state.authentication_service,
+            JWTAuthenticationService,
+        )

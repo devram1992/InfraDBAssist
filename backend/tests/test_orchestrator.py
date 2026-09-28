@@ -1351,6 +1351,63 @@ async def test_execute_tool_denies_database_engineer_for_kubernetes_tool():
     assert result["status"] == "error"
     assert result["error"] == "Permission denied: kubernetes.read"
 @pytest.mark.asyncio
+async def test_select_tool_only_exposes_authorized_tools(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="database-engineer",
+        roles={"database_engineer"},
+        permissions={"database.read"},
+    )
+
+    captured_prompt = {}
+
+    async def mock_generate_json(prompt):
+        captured_prompt["value"] = prompt
+
+        return {
+            "tool": "oracle_database",
+            "parameters": {
+                "database": "PRODDB",
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate_json",
+        mock_generate_json,
+    )
+
+    result = await orchestrator.select_tool(
+        "Check Oracle database PRODDB.",
+        user_context=user_context,
+    )
+
+    assert result == {
+        "tool": "oracle_database",
+        "parameters": {
+            "database": "PRODDB",
+        },
+    }
+
+    prompt = captured_prompt["value"]
+
+    # The orchestrator prompt contains general guidance for all
+    # infrastructure domains, so names such as "kubernetes" may
+    # legitimately appear outside the authorized tool metadata.
+    # Verify that the authorized database tool is exposed while
+    # unauthorized tool metadata is not exposed.
+    assert "oracle_database" in prompt
+    assert '"name": "kubernetes"' not in prompt
+    assert '"name": "openshift"' not in prompt
+    assert '"name": "linux"' not in prompt
+    assert '"name": "capacity_forecast"' not in prompt
+
+
+@pytest.mark.asyncio
 async def test_select_tool_denies_unauthorized_tool(
     monkeypatch,
 ):
