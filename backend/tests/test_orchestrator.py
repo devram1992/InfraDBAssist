@@ -1,6 +1,7 @@
 import pytest
 
 from backend.app.ai.orchestrator import AIOrchestrator
+from backend.app.auth.user_context import UserContext
 
 
 @pytest.mark.asyncio
@@ -1286,3 +1287,67 @@ async def test_process_keeps_normal_kubernetes_question_as_single_tool_execution
     assert result["answer"] == (
         "No Kubernetes pods found."
     )
+
+@pytest.mark.asyncio
+async def test_execute_tool_allows_database_engineer_for_database_tool(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="db-engineer",
+        roles={"database_engineer"},
+        permissions={"database.read"},
+    )
+
+    tool = orchestrator.tool_registry.get("oracle_database")
+    assert tool is not None
+
+    async def mock_execute(request):
+        return {
+            "status": "success",
+            "database": "FREEPDB1",
+        }
+
+    monkeypatch.setattr(
+        tool,
+        "execute",
+        mock_execute,
+    )
+
+    result = await orchestrator.execute_tool(
+        tool_name="oracle_database",
+        parameters={"database": "FREEPDB1"},
+        user_context=user_context,
+    )
+
+    assert result == {
+        "status": "success",
+        "database": "FREEPDB1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_denies_database_engineer_for_kubernetes_tool():
+    orchestrator = AIOrchestrator()
+
+    user_context = UserContext(
+        user_id="user-001",
+        username="db-engineer",
+        roles={"database_engineer"},
+        permissions={"database.read"},
+    )
+
+    result = await orchestrator.execute_tool(
+        tool_name="kubernetes",
+        parameters={
+            "cluster": "Docker Desktop",
+            "action": "pods",
+        },
+        user_context=user_context,
+    )
+
+    assert result["status"] == "error"
+    assert result["error"] == "Permission denied: kubernetes.read"
+
