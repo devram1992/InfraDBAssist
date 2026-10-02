@@ -36,21 +36,6 @@ class AIOrchestrator:
             self.authorization
         )
 
-        # Temporary POC user context.
-        #
-        # In the next phase, this context will be populated
-        # from the authenticated user's RBAC identity.
-        self.user_context = UserContext(
-            user_id="poc-user",
-            username="engineer",
-            roles={"database_engineer"},
-            permissions={
-                "database.read",
-                "infrastructure.read",
-                "kubernetes.read",
-                "capacity.read",
-            },
-        )
 
         # Register available tools
         self.tool_registry.register(OracleTool())
@@ -84,7 +69,9 @@ class AIOrchestrator:
             )
 
         if user_context is None:
-            user_context = self.user_context
+            raise ValueError(
+                "User context is required."
+            )
 
         authorized_tools = [
             tool
@@ -960,7 +947,9 @@ Engineer question:
             )
 
             if user_context is None:
-                user_context = self.user_context
+                raise ValueError(
+                    "User context is required."
+                )
 
             result = await self.tool_executor.execute(
                 tool=tool,
@@ -1284,7 +1273,9 @@ Strict grounding rules:
         """
 
         if user_context is None:
-            user_context = self.user_context
+            raise ValueError(
+                "User context is required."
+            )
 
         selected = await self.select_tool(
             question,

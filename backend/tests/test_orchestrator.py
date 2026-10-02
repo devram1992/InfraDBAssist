@@ -4,6 +4,19 @@ from backend.app.ai.orchestrator import AIOrchestrator
 from backend.app.auth.user_context import UserContext
 
 
+TEST_USER_CONTEXT = UserContext(
+    user_id="test-user",
+    username="platform-engineer",
+    roles={"platform_engineer"},
+    permissions={
+        "database.read",
+        "infrastructure.read",
+        "kubernetes.read",
+        "capacity.read",
+    },
+)
+
+
 @pytest.mark.asyncio
 async def test_process_supports_knowledge_only_question(
     monkeypatch,
@@ -63,7 +76,8 @@ async def test_process_supports_knowledge_only_question(
     )
 
     result = await orchestrator.process(
-        "How do I verify database backups?"
+        "How do I verify database backups?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
@@ -160,7 +174,8 @@ async def test_process_executes_selected_tool_and_searches_knowledge(
     )
 
     result = await orchestrator.process(
-        "Check Oracle database PRODDB performance"
+        "Check Oracle database PRODDB performance",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
@@ -205,7 +220,8 @@ async def test_select_tool_accepts_valid_tool_and_parameters(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
+        "Check Oracle database PRODDB.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -235,7 +251,8 @@ async def test_select_tool_returns_none_for_knowledge_only_question(
     )
 
     result = await orchestrator.select_tool(
-        "What is Oracle RAC?"
+        "What is Oracle RAC?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -260,7 +277,8 @@ async def test_select_tool_returns_none_for_procedure_question(
     )
 
     result = await orchestrator.select_tool(
-        "How do I perform an Oracle database backup?"
+        "How do I perform an Oracle database backup?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -285,7 +303,8 @@ async def test_select_tool_returns_none_for_explanation_question(
     )
 
     result = await orchestrator.select_tool(
-        "Explain Oracle Data Guard."
+        "Explain Oracle Data Guard.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -310,7 +329,8 @@ async def test_select_tool_returns_none_for_troubleshooting_question(
     )
 
     result = await orchestrator.select_tool(
-        "How can I troubleshoot Oracle blocking sessions?"
+        "How can I troubleshoot Oracle blocking sessions?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -335,7 +355,8 @@ async def test_select_tool_rejects_unknown_tool(
     )
 
     result = await orchestrator.select_tool(
-        "Check database status."
+        "Check database status.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -363,7 +384,8 @@ async def test_select_tool_rejects_invalid_parameters(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
+        "Check Oracle database PRODDB.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -387,7 +409,8 @@ async def test_select_tool_handles_invalid_json(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
+        "Check Oracle database PRODDB.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -414,7 +437,8 @@ async def test_select_tool_rejects_non_dict_response(
     )
 
     result = await orchestrator.select_tool(
-        "Check Oracle database PRODDB."
+        "Check Oracle database PRODDB.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result is None
@@ -442,7 +466,8 @@ async def test_select_tool_accepts_oracle_sessions_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show active Oracle sessions in FREEPDB1."
+        "Show active Oracle sessions in FREEPDB1.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -476,7 +501,8 @@ async def test_select_tool_accepts_oracle_tablespace_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show Oracle tablespace usage for FREEPDB1."
+        "Show Oracle tablespace usage for FREEPDB1.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -510,7 +536,8 @@ async def test_select_tool_accepts_oracle_blocking_sessions_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show the blocking sessions in FREEPDB1."
+        "Show the blocking sessions in FREEPDB1.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -544,7 +571,8 @@ async def test_select_tool_accepts_oracle_long_running_sessions_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show long-running Oracle sessions in FREEPDB1."
+        "Show long-running Oracle sessions in FREEPDB1.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -579,7 +607,8 @@ async def test_select_tool_accepts_capacity_forecast(
     )
 
     result = await orchestrator.select_tool(
-        "When will SYSTEM tablespace in FREEPDB1 reach 99%?"
+        "When will SYSTEM tablespace in FREEPDB1 reach 99%?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -618,7 +647,8 @@ async def test_select_tool_accepts_capacity_forecast_with_horizon(
 
     result = await orchestrator.select_tool(
         "Forecast SYSTEM tablespace usage in FREEPDB1 "
-        "for the next 30 days."
+        "for the next 30 days.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -739,7 +769,8 @@ async def test_process_executes_capacity_forecast(
     )
 
     result = await orchestrator.process(
-        "When will SYSTEM tablespace in FREEPDB1 reach 99%?"
+        "When will SYSTEM tablespace in FREEPDB1 reach 99%?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
@@ -780,7 +811,8 @@ async def test_select_tool_accepts_kubernetes_health_action(
     )
 
     result = await orchestrator.select_tool(
-        "Is the Docker Desktop Kubernetes cluster healthy?"
+        "Is the Docker Desktop Kubernetes cluster healthy?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -813,7 +845,8 @@ async def test_select_tool_accepts_kubernetes_high_restart_action(
     )
 
     result = await orchestrator.select_tool(
-        "Which Kubernetes pods have high restart counts?"
+        "Which Kubernetes pods have high restart counts?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -845,7 +878,8 @@ async def test_select_tool_accepts_kubernetes_pending_action(
     )
 
     result = await orchestrator.select_tool(
-        "Show pending Kubernetes pods."
+        "Show pending Kubernetes pods.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -878,7 +912,8 @@ async def test_select_tool_accepts_kubernetes_failed_action_with_namespace(
     )
 
     result = await orchestrator.select_tool(
-        "Show failed pods in namespace default."
+        "Show failed pods in namespace default.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result == {
@@ -973,7 +1008,8 @@ async def test_investigate_kubernetes_collects_all_signals(
             "cluster": "Docker Desktop",
             "namespace": "default",
             "pod": "validator",
-        }
+        },
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
@@ -1045,7 +1081,6 @@ async def test_investigate_kubernetes_propagates_user_context_to_all_signals(
                 user_context,
             )
         )
-
         return {
             "tool": "kubernetes",
             "status": "success",
@@ -1069,19 +1104,16 @@ async def test_investigate_kubernetes_propagates_user_context_to_all_signals(
 
     assert result["status"] == "success"
     assert len(calls) == 3
-
     assert [call[0] for call in calls] == [
         "kubernetes",
         "kubernetes",
         "kubernetes",
     ]
-
     assert [call[1]["action"] for call in calls] == [
         "pod_details",
         "logs",
         "events",
     ]
-
     assert all(
         call[2] == user_context
         for call in calls
@@ -1156,7 +1188,8 @@ async def test_investigate_kubernetes_returns_partial_when_signal_fails(
             "cluster": "Docker Desktop",
             "namespace": "default",
             "pod": "validator",
-        }
+        },
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "partial"
@@ -1254,7 +1287,8 @@ async def test_process_investigation_applies_local_kubernetes_defaults(
     )
 
     result = await orchestrator.process(
-        "Why is the validator pod failing?"
+        "Why is the validator pod failing?",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
@@ -1345,7 +1379,8 @@ async def test_process_keeps_normal_kubernetes_question_as_single_tool_execution
     )
 
     result = await orchestrator.process(
-        "Show Kubernetes pods."
+        "Show Kubernetes pods.",
+        user_context=TEST_USER_CONTEXT,
     )
 
     assert result["status"] == "success"
