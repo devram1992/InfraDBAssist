@@ -9,6 +9,7 @@ class ToolExecutor:
 
     Execution flow:
         type validation
+        -> user context validation
         -> authorization
         -> request validation
         -> tool execution
@@ -24,7 +25,6 @@ class ToolExecutor:
         self,
         tool: Tool,
         request: dict,
-        user_permissions: set[str] | None = None,
         user_context: UserContext | None = None,
     ) -> dict:
         if not isinstance(
@@ -35,27 +35,17 @@ class ToolExecutor:
                 "tool must be an instance of Tool."
             )
 
-        if user_context is not None:
-            allowed = (
-                self.authorization.is_user_allowed(
-                    user_context=user_context,
-                    required_permission=tool.permission,
-                )
-            )
-
-        elif user_permissions is not None:
-            allowed = (
-                self.authorization.is_allowed(
-                    user_permissions=user_permissions,
-                    required_permission=tool.permission,
-                )
-            )
-
-        else:
+        if user_context is None:
             raise ValueError(
-                "Either user_context or "
-                "user_permissions must be provided."
+                "User context is required."
             )
+
+        allowed = (
+            self.authorization.is_user_allowed(
+                user_context=user_context,
+                required_permission=tool.permission,
+            )
+        )
 
         if not allowed:
             raise PermissionError(

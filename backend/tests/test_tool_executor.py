@@ -26,6 +26,15 @@ class InvalidRequestTool(DummyTool):
         raise ValueError("Invalid request")
 
 
+def database_user_context() -> UserContext:
+    return UserContext(
+        user_id="user-001",
+        username="database-engineer",
+        roles={"database_engineer"},
+        permissions={"database.read"},
+    )
+
+
 @pytest.mark.asyncio
 async def test_executor_allows_authorized_tool():
     auth = AuthorizationService()
@@ -35,7 +44,7 @@ async def test_executor_allows_authorized_tool():
     result = await executor.execute(
         tool=tool,
         request={"target": "TESTDB"},
-        user_permissions={"database.read"},
+        user_context=database_user_context(),
     )
 
     assert result["status"] == "executed"
@@ -48,11 +57,21 @@ async def test_executor_denies_unauthorized_tool():
     executor = ToolExecutor(auth)
     tool = DummyTool()
 
-    with pytest.raises(PermissionError):
+    user_context = UserContext(
+        user_id="user-001",
+        username="infrastructure-engineer",
+        roles={"infrastructure_engineer"},
+        permissions={"infrastructure.read"},
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="database.read",
+    ):
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
-            user_permissions={"infrastructure.read"},
+            user_context=user_context,
         )
 
 
@@ -69,7 +88,7 @@ async def test_executor_validates_request_before_execution():
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
-            user_permissions={"database.read"},
+            user_context=database_user_context(),
         )
 
 
@@ -82,24 +101,23 @@ async def test_executor_rejects_non_tool():
         await executor.execute(
             tool=None,
             request={},
-            user_permissions={"database.read"},
+            user_context=database_user_context(),
         )
 
 
 @pytest.mark.asyncio
-async def test_executor_rejects_missing_permissions():
+async def test_executor_rejects_missing_user_context():
     auth = AuthorizationService()
     executor = ToolExecutor(auth)
     tool = DummyTool()
 
     with pytest.raises(
-        PermissionError,
-        match="database.read",
+        ValueError,
+        match="User context is required",
     ):
         await executor.execute(
             tool=tool,
             request={"target": "TESTDB"},
-            user_permissions=set(),
         )
 
 
@@ -112,7 +130,7 @@ async def test_executor_returns_tool_result():
     result = await executor.execute(
         tool=tool,
         request={"target": "TESTDB"},
-        user_permissions={"database.read"},
+        user_context=database_user_context(),
     )
 
     assert result == {
