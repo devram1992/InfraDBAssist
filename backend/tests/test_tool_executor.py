@@ -1,5 +1,6 @@
 import pytest
 
+from backend.app.audit.service import AuditService
 from backend.app.auth.authorization import AuthorizationService
 from backend.app.auth.role_permissions import RolePermissionMapper
 from backend.app.auth.user_context import UserContext
@@ -26,6 +27,11 @@ class InvalidRequestTool(DummyTool):
         raise ValueError("Invalid request")
 
 
+class FailingTool(DummyTool):
+    async def execute(self, request: dict) -> dict:
+        raise RuntimeError("Tool execution failed")
+
+
 def database_user_context() -> UserContext:
     return UserContext(
         user_id="user-001",
@@ -35,10 +41,19 @@ def database_user_context() -> UserContext:
     )
 
 
+def create_executor() -> tuple[ToolExecutor, AuditService]:
+    auth = AuthorizationService()
+    audit_service = AuditService()
+    executor = ToolExecutor(
+        authorization=auth,
+        audit_service=audit_service,
+    )
+    return executor, audit_service
+
+
 @pytest.mark.asyncio
 async def test_executor_allows_authorized_tool():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     result = await executor.execute(
@@ -48,13 +63,22 @@ async def test_executor_allows_authorized_tool():
     )
 
     assert result["status"] == "executed"
-    assert result["request"]["target"] == "TESTDB"
+
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "success"
+    assert events[0].user_id == "user-001"
+    assert events[0].username == "database-engineer"
+    assert events[0].tool_name == "dummy"
+    assert events[0].permission == "database.read"
+    assert events[0].request == {"target": "TESTDB"}
+    assert events[0].error is None
 
 
 @pytest.mark.asyncio
 async def test_executor_denies_unauthorized_tool():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     user_context = UserContext(
@@ -74,11 +98,21 @@ async def test_executor_denies_unauthorized_tool():
             user_context=user_context,
         )
 
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "denied"
+    assert events[0].user_id == "user-001"
+    assert events[0].tool_name == "dummy"
+    assert events[0].permission == "database.read"
+    assert events[0].error == (
+        "Permission denied: database.read"
+    )
+
 
 @pytest.mark.asyncio
 async def test_executor_validates_request_before_execution():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = InvalidRequestTool()
 
     with pytest.raises(
@@ -91,11 +125,16 @@ async def test_executor_validates_request_before_execution():
             user_context=database_user_context(),
         )
 
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "validation_failed"
+    assert events[0].error == "Invalid request"
+
 
 @pytest.mark.asyncio
 async def test_executor_rejects_non_tool():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
 
     with pytest.raises(TypeError):
         await executor.execute(
@@ -104,11 +143,12 @@ async def test_executor_rejects_non_tool():
             user_context=database_user_context(),
         )
 
+    assert audit_service.list_events() == []
+
 
 @pytest.mark.asyncio
 async def test_executor_rejects_missing_user_context():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     with pytest.raises(
@@ -120,11 +160,12 @@ async def test_executor_rejects_missing_user_context():
             request={"target": "TESTDB"},
         )
 
+    assert audit_service.list_events() == []
+
 
 @pytest.mark.asyncio
 async def test_executor_returns_tool_result():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     result = await executor.execute(
@@ -138,11 +179,13 @@ async def test_executor_returns_tool_result():
         "request": {"target": "TESTDB"},
     }
 
+    assert len(audit_service.list_events()) == 1
+    assert audit_service.list_events()[0].status == "success"
+
 
 @pytest.mark.asyncio
 async def test_executor_accepts_user_context():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     user_context = UserContext(
@@ -162,11 +205,16 @@ async def test_executor_accepts_user_context():
         "request": {"target": "TESTDB"},
     }
 
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].username == "engineer"
+    assert events[0].status == "success"
+
 
 @pytest.mark.asyncio
 async def test_executor_rejects_user_context_without_permission():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     user_context = UserContext(
@@ -185,11 +233,37 @@ async def test_executor_rejects_user_context_without_permission():
             user_context=user_context,
         )
 
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "denied"
+
+
+@pytest.mark.asyncio
+async def test_executor_records_tool_execution_error():
+    executor, audit_service = create_executor()
+    tool = FailingTool()
+
+    with pytest.raises(
+        RuntimeError,
+        match="Tool execution failed",
+    ):
+        await executor.execute(
+            tool=tool,
+            request={"target": "TESTDB"},
+            user_context=database_user_context(),
+        )
+
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "error"
+    assert events[0].error == "Tool execution failed"
+
 
 @pytest.mark.asyncio
 async def test_database_engineer_can_execute_database_tool():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
     tool = DummyTool()
 
     mapper = RolePermissionMapper()
@@ -211,11 +285,15 @@ async def test_database_engineer_can_execute_database_tool():
 
     assert result["status"] == "executed"
 
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "success"
+
 
 @pytest.mark.asyncio
 async def test_database_engineer_cannot_execute_kubernetes_tool():
-    auth = AuthorizationService()
-    executor = ToolExecutor(auth)
+    executor, audit_service = create_executor()
 
     class KubernetesDummyTool(Tool):
         name = "kubernetes_dummy"
@@ -254,3 +332,10 @@ async def test_database_engineer_cannot_execute_kubernetes_tool():
             request={},
             user_context=user_context,
         )
+
+    events = audit_service.list_events()
+
+    assert len(events) == 1
+    assert events[0].status == "denied"
+    assert events[0].tool_name == "kubernetes_dummy"
+    assert events[0].permission == "kubernetes.read"

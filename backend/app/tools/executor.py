@@ -1,3 +1,5 @@
+from backend.app.audit.event import AuditEvent
+from backend.app.audit.service import AuditService
 from backend.app.auth.authorization import AuthorizationService
 from backend.app.auth.user_context import UserContext
 from backend.app.tools.base import Tool
@@ -11,6 +13,7 @@ class ToolExecutor:
         type validation
         -> user context validation
         -> authorization
+        -> audit
         -> request validation
         -> tool execution
     """
@@ -18,8 +21,10 @@ class ToolExecutor:
     def __init__(
         self,
         authorization: AuthorizationService,
+        audit_service: AuditService,
     ):
         self.authorization = authorization
+        self.audit_service = audit_service
 
     async def execute(
         self,
@@ -48,10 +53,70 @@ class ToolExecutor:
         )
 
         if not allowed:
+            self.audit_service.record(
+                AuditEvent(
+                    user_id=user_context.user_id,
+                    username=user_context.username,
+                    roles=frozenset(user_context.roles),
+                    tool_name=tool.name,
+                    permission=tool.permission,
+                    request=request,
+                    status="denied",
+                    error=(
+                        f"Permission denied: "
+                        f"{tool.permission}"
+                    ),
+                )
+            )
+
             raise PermissionError(
                 f"Permission denied: {tool.permission}"
             )
 
-        tool.validate_request(request)
+        try:
+            tool.validate_request(request)
+        except Exception as exc:
+            self.audit_service.record(
+                AuditEvent(
+                    user_id=user_context.user_id,
+                    username=user_context.username,
+                    roles=frozenset(user_context.roles),
+                    tool_name=tool.name,
+                    permission=tool.permission,
+                    request=request,
+                    status="validation_failed",
+                    error=str(exc),
+                )
+            )
+            raise
 
-        return await tool.execute(request)
+        try:
+            result = await tool.execute(request)
+        except Exception as exc:
+            self.audit_service.record(
+                AuditEvent(
+                    user_id=user_context.user_id,
+                    username=user_context.username,
+                    roles=frozenset(user_context.roles),
+                    tool_name=tool.name,
+                    permission=tool.permission,
+                    request=request,
+                    status="error",
+                    error=str(exc),
+                )
+            )
+            raise
+
+        self.audit_service.record(
+            AuditEvent(
+                user_id=user_context.user_id,
+                username=user_context.username,
+                roles=frozenset(user_context.roles),
+                tool_name=tool.name,
+                permission=tool.permission,
+                request=request,
+                status="success",
+            )
+        )
+
+        return result
