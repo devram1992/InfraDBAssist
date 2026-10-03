@@ -100,6 +100,7 @@ def test_audit_service_clear():
 
     assert service.list_events() == []
 
+
 def test_audit_event_rejects_empty_user_id():
     with pytest.raises(
         ValueError,
@@ -300,3 +301,250 @@ def test_audit_event_accepts_explicit_utc_timestamp():
     )
 
     assert event.timestamp == timestamp
+
+
+def build_event_with(
+    *,
+    user_id: str = "user-001",
+    tool_name: str = "postgresql",
+    status: str = "success",
+    timestamp: datetime | None = None,
+) -> AuditEvent:
+    return AuditEvent(
+        user_id=user_id,
+        username="database-engineer",
+        roles=frozenset({"database_engineer"}),
+        tool_name=tool_name,
+        permission="database.read",
+        request={"action": "health"},
+        status=status,
+        timestamp=timestamp,
+    )
+
+
+def test_audit_service_find_by_user():
+    service = AuditService()
+
+    user_event = build_event_with(user_id="user-001")
+    other_event = build_event_with(user_id="user-002")
+
+    service.record(user_event)
+    service.record(other_event)
+
+    events = service.find_by_user("user-001")
+
+    assert events == [user_event]
+
+
+def test_audit_service_find_by_user_returns_empty_for_unknown_user():
+    service = AuditService()
+
+    service.record(build_event_with(user_id="user-001"))
+
+    assert service.find_by_user("unknown-user") == []
+
+
+def test_audit_service_find_by_tool():
+    service = AuditService()
+
+    postgres_event = build_event_with(tool_name="postgresql")
+    oracle_event = build_event_with(tool_name="oracle")
+
+    service.record(postgres_event)
+    service.record(oracle_event)
+
+    events = service.find_by_tool("postgresql")
+
+    assert events == [postgres_event]
+
+
+def test_audit_service_find_by_tool_returns_empty_for_unknown_tool():
+    service = AuditService()
+
+    service.record(build_event_with(tool_name="postgresql"))
+
+    assert service.find_by_tool("unknown-tool") == []
+
+
+def test_audit_service_find_by_status():
+    service = AuditService()
+
+    success_event = build_event_with(status="success")
+    denied_event = build_event_with(status="denied")
+    error_event = build_event_with(status="error")
+
+    service.record(success_event)
+    service.record(denied_event)
+    service.record(error_event)
+
+    events = service.find_by_status("denied")
+
+    assert events == [denied_event]
+
+
+def test_audit_service_find_by_status_returns_empty_when_no_match():
+    service = AuditService()
+
+    service.record(build_event_with(status="success"))
+
+    assert service.find_by_status("error") == []
+
+
+def test_audit_service_find_by_time_range():
+    service = AuditService()
+
+    first = datetime(
+        2026,
+        10,
+        3,
+        10,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    second = datetime(
+        2026,
+        10,
+        3,
+        11,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    third = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    first_event = build_event_with(timestamp=first)
+    second_event = build_event_with(timestamp=second)
+    third_event = build_event_with(timestamp=third)
+
+    service.record(first_event)
+    service.record(second_event)
+    service.record(third_event)
+
+    events = service.find_by_time_range(
+        start_time=second,
+        end_time=third,
+    )
+
+    assert events == [
+        second_event,
+        third_event,
+    ]
+
+
+def test_audit_service_find_by_time_range_includes_boundaries():
+    service = AuditService()
+
+    timestamp = datetime(
+        2026,
+        10,
+        3,
+        11,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    event = build_event_with(timestamp=timestamp)
+    service.record(event)
+
+    events = service.find_by_time_range(
+        start_time=timestamp,
+        end_time=timestamp,
+    )
+
+    assert events == [event]
+
+
+def test_audit_service_rejects_empty_user_filter():
+    service = AuditService()
+
+    with pytest.raises(
+        ValueError,
+        match="user_id must be a non-empty string",
+    ):
+        service.find_by_user("")
+
+
+def test_audit_service_rejects_empty_tool_filter():
+    service = AuditService()
+
+    with pytest.raises(
+        ValueError,
+        match="tool_name must be a non-empty string",
+    ):
+        service.find_by_tool("")
+
+
+def test_audit_service_rejects_invalid_status_filter():
+    service = AuditService()
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid audit status",
+    ):
+        service.find_by_status("unknown")
+
+
+def test_audit_service_rejects_naive_time_range():
+    service = AuditService()
+
+    start_time = datetime(2026, 10, 3, 10, 0, 0)
+    end_time = datetime(
+        2026,
+        10,
+        3,
+        11,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="start_time must be timezone-aware",
+    ):
+        service.find_by_time_range(
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+
+def test_audit_service_rejects_invalid_time_range_order():
+    service = AuditService()
+
+    start_time = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    end_time = datetime(
+        2026,
+        10,
+        3,
+        10,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="start_time must be before or equal to end_time",
+    ):
+        service.find_by_time_range(
+            start_time=start_time,
+            end_time=end_time,
+        )
