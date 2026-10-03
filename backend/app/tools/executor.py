@@ -1,4 +1,5 @@
 from backend.app.audit.event import AuditEvent
+from backend.app.audit.sanitizer import AuditSanitizer
 from backend.app.audit.service import AuditService
 from backend.app.auth.authorization import AuthorizationService
 from backend.app.auth.user_context import UserContext
@@ -13,7 +14,7 @@ class ToolExecutor:
         type validation
         -> user context validation
         -> authorization
-        -> audit
+        -> audit request sanitization
         -> request validation
         -> tool execution
     """
@@ -22,9 +23,11 @@ class ToolExecutor:
         self,
         authorization: AuthorizationService,
         audit_service: AuditService,
+        audit_sanitizer: AuditSanitizer | None = None,
     ):
         self.authorization = authorization
         self.audit_service = audit_service
+        self.audit_sanitizer = audit_sanitizer or AuditSanitizer()
 
     async def execute(
         self,
@@ -45,6 +48,8 @@ class ToolExecutor:
                 "User context is required."
             )
 
+        audit_request = self.audit_sanitizer.sanitize(request)
+
         allowed = (
             self.authorization.is_user_allowed(
                 user_context=user_context,
@@ -60,7 +65,7 @@ class ToolExecutor:
                     roles=frozenset(user_context.roles),
                     tool_name=tool.name,
                     permission=tool.permission,
-                    request=request,
+                    request=audit_request,
                     status="denied",
                     error=(
                         f"Permission denied: "
@@ -83,7 +88,7 @@ class ToolExecutor:
                     roles=frozenset(user_context.roles),
                     tool_name=tool.name,
                     permission=tool.permission,
-                    request=request,
+                    request=audit_request,
                     status="validation_failed",
                     error=str(exc),
                 )
@@ -100,7 +105,7 @@ class ToolExecutor:
                     roles=frozenset(user_context.roles),
                     tool_name=tool.name,
                     permission=tool.permission,
-                    request=request,
+                    request=audit_request,
                     status="error",
                     error=str(exc),
                 )
@@ -114,7 +119,7 @@ class ToolExecutor:
                 roles=frozenset(user_context.roles),
                 tool_name=tool.name,
                 permission=tool.permission,
-                request=request,
+                request=audit_request,
                 status="success",
             )
         )
