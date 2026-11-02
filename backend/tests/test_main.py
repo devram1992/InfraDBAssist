@@ -95,10 +95,73 @@ def add_audit_event(
 
 
 def test_health_endpoint_is_public():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "healthy",
+            "available": True,
+            "model": "qwen3:8b",
+            "model_available": True,
+            "installed_models": [
+                "bge-m3:latest",
+                "qwen3:8b",
+            ],
+        }
+    )
+
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+
+    data = response.json()
+
+    assert data["status"] == "ok"
+    assert data["components"]["api"]["status"] == "healthy"
+    assert data["components"]["ollama"]["status"] == "healthy"
+    assert data["components"]["ollama"]["available"] is True
+    assert data["components"]["ollama"]["model"] == "qwen3:8b"
+    assert data["components"]["ollama"]["model_available"] is True
+
+
+def test_health_endpoint_reports_missing_ollama_model():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "model_missing",
+            "available": True,
+            "model": "qwen3:8b",
+            "model_available": False,
+            "installed_models": ["bge-m3:latest"],
+        }
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert (
+        response.json()["components"]["ollama"]["status"]
+        == "model_missing"
+    )
+
+
+def test_health_endpoint_reports_ollama_unavailable():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "unavailable",
+            "available": False,
+            "model": "qwen3:8b",
+            "model_available": False,
+            "error": "Connection refused",
+        }
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert (
+        response.json()["components"]["ollama"]["status"]
+        == "unavailable"
+    )
 
 
 def test_chat_endpoint_requires_authentication():

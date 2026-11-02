@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel
 
+from backend.app.ai.ollamaclient import OllamaClient
 from backend.app.ai.orchestrator import AIOrchestrator
 from backend.app.api.auth_dependency import get_authenticated_user
 from backend.app.audit.event import AuditEvent
@@ -37,9 +38,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# --------------------------------------------------
+# Application service initialization
+# --------------------------------------------------
+
 orchestrator = AIOrchestrator()
 app.state.orchestrator = orchestrator
 
+ollama_client = OllamaClient()
+app.state.ollama_client = ollama_client
+
+
+# --------------------------------------------------
+# Request and response models
+# --------------------------------------------------
 
 class ChatRequest(BaseModel):
     question: str
@@ -63,6 +76,10 @@ class AuditEventsResponse(BaseModel):
     offset: int
 
 
+# --------------------------------------------------
+# Authentication
+# --------------------------------------------------
+
 def get_authentication_service() -> AuthenticationService:
     return app.state.authentication_service
 
@@ -79,10 +96,28 @@ async def authenticated_user(
     )
 
 
+# --------------------------------------------------
+# Health API
+# --------------------------------------------------
+
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    ollama_health = await app.state.ollama_client.health_check()
 
+    return {
+        "status": "ok",
+        "components": {
+            "api": {
+                "status": "healthy"
+            },
+            "ollama": ollama_health
+        }
+    }
+
+
+# --------------------------------------------------
+# Chat API
+# --------------------------------------------------
 
 @app.post("/api/v1/chat")
 async def chat(
@@ -94,6 +129,10 @@ async def chat(
         user_context=user,
     )
 
+
+# --------------------------------------------------
+# Audit API
+# --------------------------------------------------
 
 @app.get(
     "/api/v1/audit",
