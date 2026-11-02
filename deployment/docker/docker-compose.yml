@@ -1,5 +1,5 @@
-services:
 
+services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: infradb-postgres
@@ -19,10 +19,8 @@ services:
 
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U infradb -d infradb"
-        ]
+        - CMD-SHELL
+        - pg_isready -U infradb -d infradb
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,9 +40,28 @@ services:
     volumes:
       - infradb-oracle-data:/opt/oracle/oradata
 
-volumes:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: infradb-keycloak
+    restart: unless-stopped
 
+    command:
+      - start-dev
+
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD must be set}
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+
+volumes:
   infradb_postgres_data:
 
   infradb-oracle-data:
     external: true
+
+  keycloak_data:
