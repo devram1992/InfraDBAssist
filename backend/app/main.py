@@ -2,7 +2,14 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    status,
+)
 from pydantic import BaseModel
 
 from backend.app.ai.ollamaclient import OllamaClient
@@ -113,6 +120,38 @@ async def health_check():
             "ollama": ollama_health
         }
     }
+
+
+# --------------------------------------------------
+# Readiness API
+# --------------------------------------------------
+
+@app.get("/ready")
+async def readiness_check():
+    ollama_health = await app.state.ollama_client.health_check()
+
+    ollama_ready = (
+        ollama_health.get("available") is True
+        and ollama_health.get("model_available") is True
+    )
+
+    response = {
+        "status": "ready" if ollama_ready else "not_ready",
+        "components": {
+            "api": {
+                "status": "healthy"
+            },
+            "ollama": ollama_health
+        }
+    }
+
+    if not ollama_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=response,
+        )
+
+    return response
 
 
 # --------------------------------------------------

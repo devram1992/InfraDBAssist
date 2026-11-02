@@ -94,6 +94,10 @@ def add_audit_event(
     app.state.orchestrator.audit_service.record(event)
 
 
+# --------------------------------------------------
+# Health API tests
+# --------------------------------------------------
+
 def test_health_endpoint_is_public():
     app.state.ollama_client.health_check = AsyncMock(
         return_value={
@@ -164,6 +168,83 @@ def test_health_endpoint_reports_ollama_unavailable():
     )
 
 
+# --------------------------------------------------
+# Readiness API tests
+# --------------------------------------------------
+
+def test_readiness_endpoint_returns_200_when_ollama_is_ready():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "healthy",
+            "available": True,
+            "model": "qwen3:8b",
+            "model_available": True,
+            "installed_models": [
+                "bge-m3:latest",
+                "qwen3:8b",
+            ],
+        }
+    )
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["status"] == "ready"
+    assert data["components"]["api"]["status"] == "healthy"
+    assert data["components"]["ollama"]["status"] == "healthy"
+
+
+def test_readiness_endpoint_returns_503_when_ollama_is_unavailable():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "unavailable",
+            "available": False,
+            "model": "qwen3:8b",
+            "model_available": False,
+            "error": "Connection refused",
+        }
+    )
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+
+    data = response.json()["detail"]
+
+    assert data["status"] == "not_ready"
+    assert data["components"]["api"]["status"] == "healthy"
+    assert data["components"]["ollama"]["status"] == "unavailable"
+
+
+def test_readiness_endpoint_returns_503_when_model_is_missing():
+    app.state.ollama_client.health_check = AsyncMock(
+        return_value={
+            "status": "model_missing",
+            "available": True,
+            "model": "qwen3:8b",
+            "model_available": False,
+            "installed_models": ["bge-m3:latest"],
+        }
+    )
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+
+    data = response.json()["detail"]
+
+    assert data["status"] == "not_ready"
+    assert data["components"]["ollama"]["status"] == "model_missing"
+    assert data["components"]["ollama"]["model_available"] is False
+
+
+# --------------------------------------------------
+# Chat API tests
+# --------------------------------------------------
+
 def test_chat_endpoint_requires_authentication():
     response = client.post(
         "/api/v1/chat",
@@ -214,7 +295,6 @@ def test_chat_endpoint_accepts_authenticated_request():
 # Audit API authentication and authorization tests
 # --------------------------------------------------
 
-
 def test_audit_endpoint_requires_authentication():
     response = client.get("/api/v1/audit")
 
@@ -255,7 +335,6 @@ def test_authorized_roles_can_access_audit_endpoint(token):
 # --------------------------------------------------
 # Audit API event retrieval tests
 # --------------------------------------------------
-
 
 def test_audit_endpoint_returns_recorded_events():
     add_audit_event(
@@ -341,7 +420,6 @@ def test_audit_endpoint_does_not_return_error_details():
 # --------------------------------------------------
 # Audit API filtering tests
 # --------------------------------------------------
-
 
 def test_audit_endpoint_filters_by_user_id():
     add_audit_event(
@@ -473,7 +551,6 @@ def test_audit_endpoint_supports_combined_filters():
 # Audit API pagination tests
 # --------------------------------------------------
 
-
 def test_audit_endpoint_supports_pagination():
     base_time = datetime(
         2026, 11, 1, 10, 0, tzinfo=timezone.utc
@@ -534,7 +611,6 @@ def test_audit_endpoint_rejects_negative_offset():
 # Audit API validation tests
 # --------------------------------------------------
 
-
 def test_audit_endpoint_rejects_invalid_status():
     response = client.get(
         "/api/v1/audit",
@@ -581,7 +657,6 @@ def test_audit_endpoint_rejects_timezone_naive_end_time():
 # --------------------------------------------------
 # Keycloak startup test
 # --------------------------------------------------
-
 
 def test_application_startup_initializes_keycloak_authentication(
     monkeypatch,
