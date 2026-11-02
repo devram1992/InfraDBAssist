@@ -2543,15 +2543,16 @@ Strict grounding rules:
 
 
 
+        if not isinstance(question, str):
+            raise ValueError("Question must be a string.")
+
+        if not question.strip():
+            raise ValueError("Question must not be empty.")
+
         if user_context is None:
-
             raise ValueError(
-
                 "User context is required."
-
             )
-
-
 
         selected = await self.select_tool(
 
@@ -2815,20 +2816,20 @@ Strict grounding rules:
 
 
 
+        response_status = "success"
+
+        if isinstance(tool_result, dict):
+            result_status = tool_result.get("status")
+
+            if result_status in {"error", "partial"}:
+                response_status = result_status
+
         return {
-
-            "status": "success",
-
+            "status": response_status,
             "question": question,
-
             "selected_tool": tool_name,
-
             "parameters": parameters,
-
             "tool_result": tool_result,
-
             "knowledge_results": knowledge_results,
-
             "answer": answer,
-
         }

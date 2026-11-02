@@ -1489,3 +1489,75 @@ async def test_select_tool_denies_unauthorized_tool(
     )
 
     assert result is None
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question, expected_error",
+    [
+        (None, "Question must be a string."),
+        (123, "Question must be a string."),
+        ("", "Question must not be empty."),
+        ("   ", "Question must not be empty."),
+    ],
+)
+async def test_process_rejects_invalid_questions(
+    question,
+    expected_error,
+):
+    orchestrator = AIOrchestrator()
+
+    with pytest.raises(ValueError, match=expected_error):
+        await orchestrator.process(
+            question=question,
+            user_context=TEST_USER_CONTEXT,
+        )
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_status", ["error", "partial"])
+async def test_process_propagates_tool_execution_status(
+    monkeypatch,
+    tool_status,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_select_tool(question, user_context=None):
+        return {
+            "tool": "oracle",
+            "parameters": {},
+        }
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters,
+        user_context=None,
+    ):
+        return {
+            "status": tool_status,
+            "error": "Test execution result",
+        }
+
+    async def mock_search_knowledge(question, limit=5):
+        return []
+
+    async def mock_generate_answer(**kwargs):
+        return "Test answer"
+
+    monkeypatch.setattr(
+        orchestrator, "select_tool", mock_select_tool
+    )
+    monkeypatch.setattr(
+        orchestrator, "execute_tool", mock_execute_tool
+    )
+    monkeypatch.setattr(
+        orchestrator, "search_knowledge", mock_search_knowledge
+    )
+    monkeypatch.setattr(
+        orchestrator, "generate_answer", mock_generate_answer
+    )
+
+    result = await orchestrator.process(
+        question="Check Oracle database status",
+        user_context=TEST_USER_CONTEXT,
+    )
+
+    assert result["status"] == tool_status
+    assert result["tool_result"]["status"] == tool_status
