@@ -1,3 +1,4 @@
+
 from typing import Final
 
 
@@ -24,12 +25,14 @@ class RolePermissionMapper:
             "infrastructure.read",
             "kubernetes.read",
             "capacity.read",
+            "audit.read",
         },
         "admin": {
             "database.read",
             "infrastructure.read",
             "kubernetes.read",
             "capacity.read",
+            "audit.read",
         },
     }
 
@@ -38,18 +41,13 @@ class RolePermissionMapper:
         roles: set[str],
     ) -> set[str]:
         if not isinstance(roles, set):
-            raise ValueError(
-                "roles must be a set."
-            )
+            raise ValueError("roles must be a set.")
 
         permissions: set[str] = set()
 
         for role in roles:
             permissions.update(
-                self.ROLE_PERMISSIONS.get(
-                    role,
-                    set(),
-                )
+                self.ROLE_PERMISSIONS.get(role, set())
             )
 
         return permissions

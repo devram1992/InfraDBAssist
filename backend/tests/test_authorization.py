@@ -1,6 +1,7 @@
 import pytest
 
 from backend.app.auth.authorization import AuthorizationService
+from backend.app.auth.role_permissions import RolePermissionMapper
 
 
 def test_allows_matching_permission():
@@ -91,3 +92,36 @@ def test_authorization_denies_tool_permission():
         user_permissions={"infrastructure.read"},
         required_permission=tool.permission,
     )
+@pytest.mark.parametrize(
+    "role",
+    ["platform_engineer", "admin"],
+)
+def test_privileged_roles_receive_audit_read_permission(role):
+    mapper = RolePermissionMapper()
+
+    permissions = mapper.get_permissions({role})
+
+    assert "audit.read" in permissions
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "database_engineer",
+        "infrastructure_engineer",
+        "kubernetes_engineer",
+        "capacity_engineer",
+    ],
+)
+def test_specialist_roles_do_not_receive_audit_read_permission(role):
+    mapper = RolePermissionMapper()
+
+    permissions = mapper.get_permissions({role})
+
+    assert "audit.read" not in permissions
+
+
+def test_unknown_role_receives_no_permissions():
+    mapper = RolePermissionMapper()
+
+    assert mapper.get_permissions({"unknown_role"}) == set()

@@ -1,3 +1,4 @@
+
 from backend.app.auth.role_permissions import (
     RolePermissionMapper,
 )
@@ -27,6 +28,23 @@ def test_platform_engineer_gets_all_read_permissions():
         "infrastructure.read",
         "kubernetes.read",
         "capacity.read",
+        "audit.read",
+    }
+
+
+def test_admin_gets_all_read_permissions():
+    mapper = RolePermissionMapper()
+
+    permissions = mapper.get_permissions(
+        {"admin"}
+    )
+
+    assert permissions == {
+        "database.read",
+        "infrastructure.read",
+        "kubernetes.read",
+        "capacity.read",
+        "audit.read",
     }
 
 
