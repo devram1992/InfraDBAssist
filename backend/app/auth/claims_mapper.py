@@ -1,3 +1,4 @@
+
 from backend.app.auth.role_permissions import (
     RolePermissionMapper,
 )
@@ -8,6 +9,9 @@ class ClaimsMapper:
     """
     Maps validated identity-provider claims into
     the application's UserContext.
+
+    Application permissions are derived exclusively
+    from trusted application role mappings.
     """
 
     def __init__(
@@ -33,21 +37,30 @@ class ClaimsMapper:
             "preferred_username"
         )
 
-        if not user_id:
+        if not isinstance(user_id, str) or not user_id.strip():
             raise ValueError(
                 "Token claims missing required 'sub'."
             )
 
-        if not username:
+        if not isinstance(username, str) or not username.strip():
             raise ValueError(
                 "Token claims missing required "
                 "'preferred_username'."
             )
 
-        roles = set(
-            claims.get("roles", [])
-        )
+        roles: set[str] = set()
 
+        # Extract direct application roles.
+        direct_roles = claims.get("roles", [])
+
+        if isinstance(direct_roles, list):
+            roles.update(
+                role
+                for role in direct_roles
+                if isinstance(role, str) and role.strip()
+            )
+
+        # Extract Keycloak realm roles.
         realm_access = claims.get(
             "realm_access",
             {}
@@ -60,8 +73,13 @@ class ClaimsMapper:
             )
 
             if isinstance(realm_roles, list):
-                roles.update(realm_roles)
+                roles.update(
+                    role
+                    for role in realm_roles
+                    if isinstance(role, str) and role.strip()
+                )
 
+        # Extract InfraDBAssist client roles.
         resource_access = claims.get(
             "resource_access",
             {}
@@ -80,20 +98,18 @@ class ClaimsMapper:
                 )
 
                 if isinstance(client_roles, list):
-                    roles.update(client_roles)
+                    roles.update(
+                        role
+                        for role in client_roles
+                        if isinstance(role, str) and role.strip()
+                    )
 
-        role_permissions = (
+        # Derive permissions exclusively from application roles.
+        # Never trust arbitrary permissions supplied in JWT claims.
+        permissions = (
             self.role_permission_mapper.get_permissions(
                 roles
             )
-        )
-
-        claim_permissions = set(
-            claims.get("permissions", [])
-        )
-
-        permissions = (
-            role_permissions | claim_permissions
         )
 
         return UserContext(

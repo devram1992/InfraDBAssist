@@ -133,3 +133,35 @@ def test_keycloak_client_roles_are_mapped():
     assert context.roles == {
         "database_engineer",
     }
+
+def test_jwt_permissions_claim_cannot_grant_extra_permissions():
+    mapper = ClaimsMapper()
+
+    context = mapper.to_user_context(
+        {
+            "sub": "user-005",
+            "preferred_username": "db-engineer",
+            "realm_access": {
+                "roles": [
+                    "database_engineer",
+                ],
+            },
+            "permissions": [
+                "audit.read",
+                "infrastructure.read",
+                "kubernetes.read",
+            ],
+        }
+    )
+
+    assert context.roles == {
+        "database_engineer",
+    }
+
+    assert context.permissions == {
+        "database.read",
+    }
+
+    assert not context.has_permission("audit.read")
+    assert not context.has_permission("infrastructure.read")
+    assert not context.has_permission("kubernetes.read")
