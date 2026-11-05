@@ -1856,31 +1856,24 @@ Engineer question:
 
 
         if not isinstance(
-
             parameters,
-
             dict,
-
         ):
-
             return {
-
                 "status": "error",
-
                 "error": (
-
                     "Tool parameters must be "
-
                     "a dictionary."
-
                 ),
-
             }
 
+        # Apply default cluster for local Kubernetes development.
+        parameters = dict(parameters)
 
+        if tool_name == "kubernetes" and not parameters.get("cluster"):
+            parameters["cluster"] = "Docker Desktop"
 
         try:
-
 
 
             request = tool.build_request(
@@ -2019,6 +2012,106 @@ Engineer question:
 
 
 
+    @staticmethod
+    def _format_kubernetes_pod_inventory(
+        question: str,
+        tool_name: str,
+        tool_result: dict,
+    ) -> str | None:
+        """Format a complete Kubernetes pod inventory without LLM truncation."""
+
+        if tool_name != "kubernetes":
+            return None
+
+        normalized_question = " ".join(question.lower().split())
+        inventory_terms = (
+            "all pods",
+            "pod inventory",
+            "list pods",
+            "show pods",
+            "pods across",
+        )
+        if not any(term in normalized_question for term in inventory_terms):
+            return None
+
+        if not isinstance(tool_result, dict):
+            return None
+        if tool_result.get("status") != "success":
+            return None
+
+        data = tool_result.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        pods_data = data.get("pods")
+        if not isinstance(pods_data, dict):
+            return None
+
+        items = pods_data.get("items")
+        if not isinstance(items, list):
+            return None
+
+        grouped: dict[str, list[dict]] = {}
+        phase_counts: dict[str, int] = {}
+
+        for pod in items:
+            if not isinstance(pod, dict):
+                continue
+
+            namespace = pod.get("namespace") or "unknown"
+            if not isinstance(namespace, str):
+                namespace = str(namespace)
+
+            grouped.setdefault(namespace, []).append(pod)
+
+            phase = pod.get("phase") or "Unknown"
+            if not isinstance(phase, str):
+                phase = str(phase)
+            phase_counts[phase] = phase_counts.get(phase, 0) + 1
+
+        valid_pod_count = sum(len(namespace_pods) for namespace_pods in grouped.values())
+        cluster = data.get("cluster") or "Unknown"
+
+        lines = [
+            f"Kubernetes Pod Inventory: {cluster}",
+            "",
+            f"Total pods: {valid_pod_count}",
+            "",
+            "Status summary:",
+        ]
+
+        for phase in sorted(phase_counts):
+            lines.append(f"- {phase}: {phase_counts[phase]}")
+
+        lines.extend(["", "Pods by namespace:"])
+
+        for namespace in sorted(grouped):
+            namespace_pods = grouped[namespace]
+            lines.extend(
+                [
+                    "",
+                    f"Namespace: {namespace} ({len(namespace_pods)} pods)",
+                    "| Pod name | Status | Restarts |",
+                    "|---|---|---:|",
+                ]
+            )
+
+            for pod in sorted(
+                namespace_pods,
+                key=lambda item: str(item.get("name") or "UNKNOWN"),
+            ):
+                name = str(pod.get("name") or "UNKNOWN").replace("|", "\\|")
+                phase = str(pod.get("phase") or "Unknown").replace("|", "\\|")
+                restart_count = pod.get("restart_count", 0)
+                if not isinstance(restart_count, int) or restart_count < 0:
+                    restart_count = 0
+
+                lines.append(
+                    f"| {name} | {phase} | {restart_count} |"
+                )
+
+        return "\n".join(lines)
+
     async def generate_answer(
 
         self,
@@ -2040,6 +2133,14 @@ Engineer question:
         and relevant internal knowledge.
 
         """
+
+        inventory_answer = self._format_kubernetes_pod_inventory(
+            question=question,
+            tool_name=tool_name,
+            tool_result=tool_result,
+        )
+        if inventory_answer is not None:
+            return inventory_answer
 
 
 
@@ -2465,6 +2566,40 @@ Strict grounding rules:
 
     # =============================================================
 
+    @staticmethod
+    def _is_greeting_question(question: str) -> bool:
+        """Identify standalone greetings and simple social exchanges."""
+
+        normalized = re.sub(
+            r"[^\w\s]",
+            "",
+            question.lower(),
+        )
+        normalized = " ".join(normalized.split())
+
+        greetings = {
+            "hi",
+            "hello",
+            "hey",
+            "hi there",
+            "hello there",
+            "hey there",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "how are you",
+            "how are you doing",
+            "hi how are you",
+            "hello how are you",
+            "hey how are you",
+            "what is up",
+            "whats up",
+            "thanks",
+            "thank you",
+            "thank you very much",
+        }
+
+        return normalized in greetings
 
 
     async def process(
@@ -2553,6 +2688,44 @@ Strict grounding rules:
             raise ValueError(
                 "User context is required."
             )
+
+        # =========================================================
+        # CONVERSATIONAL REQUEST HANDLING
+        # =========================================================
+
+        if self._is_greeting_question(question):
+            normalized = re.sub(
+                r"[^\w\s]",
+                "",
+                question.lower(),
+            )
+            normalized = " ".join(normalized.split())
+
+            if normalized in {
+                "thanks",
+                "thank you",
+                "thank you very much",
+            }:
+                answer = "You're welcome! Let me know if you need help with a database or infrastructure question."
+            else:
+                answer = (
+                    "Hello! I'm InfraDB AI, your database and "
+                    "infrastructure engineering assistant. "
+                    "I can help you investigate technical issues, "
+                    "understand infrastructure operations, and "
+                    "work with internal documentation. "
+                    "What would you like to work on?"
+                )
+
+            return {
+                "status": "success",
+                "question": question,
+                "selected_tool": None,
+                "parameters": {},
+                "tool_result": None,
+                "knowledge_results": [],
+                "answer": answer,
+            }
 
         selected = await self.select_tool(
 

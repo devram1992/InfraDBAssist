@@ -1561,3 +1561,225 @@ async def test_process_propagates_tool_execution_status(
 
     assert result["status"] == tool_status
     assert result["tool_result"]["status"] == tool_status
+
+@pytest.mark.asyncio
+async def test_process_handles_greeting_without_tools_or_rag(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def unexpected_call(*args, **kwargs):
+        pytest.fail(
+            "Greeting should not invoke tool selection, "
+            "tool execution, or knowledge search."
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "select_tool",
+        unexpected_call,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "search_knowledge",
+        unexpected_call,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "generate_answer",
+        unexpected_call,
+    )
+
+    result = await orchestrator.process(
+        "Hi, how are you?",
+        user_context=TEST_USER_CONTEXT,
+    )
+
+    assert result["status"] == "success"
+    assert result["selected_tool"] is None
+    assert result["parameters"] == {}
+    assert result["tool_result"] is None
+    assert result["knowledge_results"] == []
+    assert "Hello!" in result["answer"]
+
+
+@pytest.mark.asyncio
+async def test_process_handles_thank_you_without_tools_or_rag(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def unexpected_call(*args, **kwargs):
+        pytest.fail(
+            "Conversational request should not invoke tools or RAG."
+        )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "select_tool",
+        unexpected_call,
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "search_knowledge",
+        unexpected_call,
+    )
+
+    result = await orchestrator.process(
+        "Thank you!",
+        user_context=TEST_USER_CONTEXT,
+    )
+
+    assert result["status"] == "success"
+    assert result["selected_tool"] is None
+    assert result["knowledge_results"] == []
+    assert "welcome" in result["answer"].lower()
+
+
+# =============================================================
+# KUBERNETES POD INVENTORY FORMATTER TESTS
+# =============================================================
+
+def test_kubernetes_inventory_groups_all_pods_by_namespace():
+    result = {
+        "status": "success",
+        "data": {
+            "cluster": "Docker Desktop",
+            "pods": {
+                "items": [
+                    {
+                        "namespace": "default",
+                        "name": "app-pod",
+                        "phase": "Running",
+                        "restart_count": 2,
+                    },
+                    {
+                        "namespace": "kube-system",
+                        "name": "dns-pod",
+                        "phase": "Running",
+                        "restart_count": 1,
+                    },
+                    {
+                        "namespace": "default",
+                        "name": "worker-pod",
+                        "phase": "Succeeded",
+                        "restart_count": 0,
+                    },
+                ]
+            },
+        },
+    }
+
+    answer = AIOrchestrator._format_kubernetes_pod_inventory(
+        question="Show all pods across every namespace",
+        tool_name="kubernetes",
+        tool_result=result,
+    )
+
+    assert "Total pods: 3" in answer
+    assert "Namespace: default (2 pods)" in answer
+    assert "Namespace: kube-system (1 pods)" in answer
+    assert "| app-pod | Running | 2 |" in answer
+    assert "| worker-pod | Succeeded | 0 |" in answer
+    assert "| dns-pod | Running | 1 |" in answer
+
+
+def test_kubernetes_inventory_handles_empty_pod_list():
+    result = {
+        "status": "success",
+        "data": {
+            "cluster": "Docker Desktop",
+            "pods": {"items": []},
+        },
+    }
+
+    answer = AIOrchestrator._format_kubernetes_pod_inventory(
+        question="Show all pods",
+        tool_name="kubernetes",
+        tool_result=result,
+    )
+
+    assert "Total pods: 0" in answer
+    assert "Pods by namespace:" in answer
+
+
+def test_kubernetes_inventory_normalizes_restart_counts():
+    result = {
+        "status": "success",
+        "data": {
+            "pods": {
+                "items": [
+                    {
+                        "namespace": "default",
+                        "name": "negative-restarts",
+                        "phase": "Running",
+                        "restart_count": -5,
+                    },
+                    {
+                        "namespace": "default",
+                        "name": "invalid-restarts",
+                        "phase": "Running",
+                        "restart_count": "invalid",
+                    },
+                ]
+            }
+        },
+    }
+
+    answer = AIOrchestrator._format_kubernetes_pod_inventory(
+        question="List pods",
+        tool_name="kubernetes",
+        tool_result=result,
+    )
+
+    assert "| negative-restarts | Running | 0 |" in answer
+    assert "| invalid-restarts | Running | 0 |" in answer
+
+
+def test_kubernetes_inventory_returns_none_for_invalid_data():
+    invalid_results = [
+        None,
+        {},
+        {"status": "error"},
+        {"status": "success", "data": None},
+        {"status": "success", "data": {"pods": None}},
+        {"status": "success", "data": {"pods": {"items": None}}},
+    ]
+
+    for result in invalid_results:
+        answer = AIOrchestrator._format_kubernetes_pod_inventory(
+            question="Show all pods",
+            tool_name="kubernetes",
+            tool_result=result,
+        )
+
+        assert answer is None
+
+
+def test_kubernetes_inventory_does_not_intercept_other_questions():
+    result = {
+        "status": "success",
+        "data": {
+            "pods": {
+                "items": [
+                    {
+                        "namespace": "default",
+                        "name": "app-pod",
+                        "phase": "Running",
+                        "restart_count": 0,
+                    }
+                ]
+            }
+        },
+    }
+
+    answer = AIOrchestrator._format_kubernetes_pod_inventory(
+        question="Is my Kubernetes cluster healthy?",
+        tool_name="kubernetes",
+        tool_result=result,
+    )
+
+    assert answer is None

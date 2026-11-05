@@ -1,3 +1,5 @@
+import os
+
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
@@ -217,7 +219,10 @@ class KubernetesTool(Tool):
         tail_lines = request.get("tail_lines")
 
         try:
-            config.load_kube_config()
+            if os.getenv("KUBERNETES_SERVICE_HOST"):
+                config.load_incluster_config()
+            else:
+                config.load_kube_config()
 
             core_api = client.CoreV1Api()
 
