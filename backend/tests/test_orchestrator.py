@@ -1017,6 +1017,11 @@ async def test_investigate_kubernetes_collects_all_signals(
     assert result["cluster"] == "Docker Desktop"
     assert result["namespace"] == "default"
     assert result["pod"] == "validator"
+    assert result["resolved_pod"] == "validator-abc123"
+    assert result["evidence_summary"]["pod_details"]["availability"] == "available"
+    assert result["evidence_summary"]["logs"]["availability"] == "available"
+    assert result["evidence_summary"]["events"]["availability"] == "available"
+    assert result["evidence_summary"]["events"]["record_count"] == 1
 
     assert set(result["signals"]) == {
         "pod_details",
@@ -1040,7 +1045,7 @@ async def test_investigate_kubernetes_collects_all_signals(
                 "cluster": "Docker Desktop",
                 "action": "logs",
                 "namespace": "default",
-                "pod": "validator",
+                "pod": "validator-abc123",
             },
         ),
         (
@@ -1049,6 +1054,7 @@ async def test_investigate_kubernetes_collects_all_signals(
                 "cluster": "Docker Desktop",
                 "action": "events",
                 "namespace": "default",
+                "pod": "validator-abc123",
             },
         ),
     ]
@@ -1199,7 +1205,77 @@ async def test_investigate_kubernetes_returns_partial_when_signal_fails(
         result["signals"]["logs"]["status"]
         == "error"
     )
+    assert result["evidence_summary"]["logs"]["status"] == "error"
+    assert result["evidence_summary"]["logs"]["availability"] == "unavailable"
+    assert result["evidence_summary"]["events"]["availability"] == "available"
 
+
+
+
+@pytest.mark.asyncio
+async def test_investigate_kubernetes_marks_empty_logs_and_events(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+        user_context=None,
+    ):
+        action = parameters["action"]
+
+        if action == "pod_details":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {"pod": "validator", "namespace": "default"},
+            }
+
+        if action == "logs":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "pod": "validator",
+                    "namespace": "default",
+                    "logs": {"content": ""},
+                },
+            }
+
+        if action == "events":
+            assert parameters["pod"] == "validator"
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "namespace": "default",
+                    "events": {"count": 0, "items": []},
+                },
+            }
+
+        raise AssertionError(f"Unexpected action: {action}")
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    result = await orchestrator.investigate_kubernetes(
+        {
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+        },
+        user_context=TEST_USER_CONTEXT,
+    )
+
+    assert result["status"] == "success"
+    assert result["evidence_summary"]["pod_details"]["availability"] == "available"
+    assert result["evidence_summary"]["logs"]["availability"] == "empty"
+    assert result["evidence_summary"]["events"]["availability"] == "empty"
+    assert result["evidence_summary"]["events"]["record_count"] == 0
 
 @pytest.mark.asyncio
 async def test_process_investigation_applies_local_kubernetes_defaults(
@@ -1783,3 +1859,255 @@ def test_kubernetes_inventory_does_not_intercept_other_questions():
     )
 
     assert answer is None
+
+
+@pytest.mark.asyncio
+async def test_investigate_kubernetes_uses_resolved_pod_for_logs_and_events(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+    calls = []
+
+    async def mock_execute_tool(
+        tool_name,
+        parameters=None,
+        user_context=None,
+    ):
+        calls.append(dict(parameters))
+        action = parameters["action"]
+
+        if action == "pod_details":
+            return {
+                "tool": "kubernetes",
+                "status": "success",
+                "data": {
+                    "pod": {
+                        "name": "validator-59d58784f-bj6ss",
+                        "namespace": "default",
+                        "phase": "Pending",
+                        "containers": [],
+                    },
+                },
+            }
+
+        return {
+            "tool": "kubernetes",
+            "status": "success",
+            "data": {
+                "pod": "validator-59d58784f-bj6ss",
+                "namespace": "default",
+                "logs": {"content": ""},
+                "events": {"count": 0, "items": []},
+            },
+        }
+
+    monkeypatch.setattr(
+        orchestrator,
+        "execute_tool",
+        mock_execute_tool,
+    )
+
+    result = await orchestrator.investigate_kubernetes(
+        {
+            "cluster": "Docker Desktop",
+            "namespace": "default",
+            "pod": "validator",
+        },
+        user_context=TEST_USER_CONTEXT,
+    )
+
+    assert result["status"] == "success"
+    assert result["pod"] == "validator"
+    assert result["resolved_pod"] == "validator-59d58784f-bj6ss"
+    assert calls[0]["action"] == "pod_details"
+    assert calls[0]["pod"] == "validator"
+    assert calls[1]["action"] == "logs"
+    assert calls[1]["pod"] == "validator-59d58784f-bj6ss"
+    assert calls[2]["action"] == "events"
+    assert calls[2]["pod"] == "validator-59d58784f-bj6ss"
+
+@pytest.mark.asyncio
+async def test_generate_answer_identifies_explicit_ephemeral_storage_eviction(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    eviction_message = (
+        "The node was low on resource: ephemeral-storage. "
+        "Threshold quantity: 9400665051, "
+        "available: 9111644Ki."
+    )
+
+    tool_result = {
+        "status": "success",
+        "investigation": "kubernetes_pod_failure",
+        "namespace": "default",
+        "pod": "validator-59d58784f-fc2hk",
+        "resolved_pod": "validator-59d58784f-fc2hk",
+        "diagnostic_facts": {
+            "pod_eviction": {
+                "reason": "Evicted",
+                "message": eviction_message,
+            }
+        },
+        "evidence_summary": {
+            "pod_details": {
+                "status": "success",
+                "availability": "available",
+                "eviction_evidence": {
+                    "reason": "Evicted",
+                    "message": eviction_message,
+                },
+            },
+            "logs": {
+                "status": "success",
+                "availability": "empty",
+            },
+            "events": {
+                "status": "success",
+                "availability": "empty",
+            },
+        },
+    }
+
+    prompts = []
+
+    async def mock_generate(prompt):
+        prompts.append(prompt)
+
+        if len(prompts) == 1:
+            return "The pod was evicted due to ephemeral-storage pressure."
+
+        return (
+            "Root Cause\n"
+            "The pod was evicted by kubelet due to "
+            "node ephemeral-storage pressure.\n\n"
+            "Evidence\n"
+            "Pod status reason was Evicted. The status message "
+            "identified ephemeral-storage pressure.\n\n"
+            "Impact\n"
+            "The validator pod entered Failed state.\n\n"
+            "What Is Not Confirmed\n"
+            "The workload responsible for storage consumption "
+            "is not established."
+        )
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate",
+        mock_generate,
+    )
+
+    answer = await orchestrator.generate_answer(
+        question=(
+            "Investigate the validator pod failure."
+        ),
+        tool_name="kubernetes_investigation",
+        tool_result=tool_result,
+        knowledge_results=[],
+    )
+
+    assert len(prompts) == 2
+
+    # First diagnostic prompt must contain the eviction evidence.
+    assert "Evicted" in prompts[0]
+    assert "ephemeral-storage" in prompts[0]
+    assert "diagnostic_facts" in prompts[0]
+
+    # Second formatting prompt must retain the same evidence.
+    assert "Evicted" in prompts[1]
+    assert "ephemeral-storage" in prompts[1]
+    assert "Explicit eviction exception" in prompts[1]
+
+    # Final answer must be the second-stage response.
+    assert "Root Cause" in answer
+    assert "ephemeral-storage pressure" in answer
+    assert "What Is Not Confirmed" in answer
+
+@pytest.mark.asyncio
+async def test_generate_answer_does_not_infer_root_cause_without_eviction_evidence(
+    monkeypatch,
+):
+    orchestrator = AIOrchestrator()
+
+    tool_result = {
+        "status": "success",
+        "investigation": "kubernetes_pod_failure",
+        "namespace": "default",
+        "pod": "validator-test",
+        "signals": {
+            "pod_details": {
+                "status": "success",
+                "data": {
+                    "pod": {
+                        "name": "validator-test",
+                        "phase": "Failed",
+                        "reason": None,
+                        "message": None,
+                    }
+                },
+            }
+        },
+        "evidence_summary": {
+            "pod_details": {
+                "status": "success",
+                "availability": "available",
+            },
+            "logs": {
+                "status": "success",
+                "availability": "empty",
+            },
+            "events": {
+                "status": "success",
+                "availability": "empty",
+            },
+        },
+        "diagnostic_facts": {},
+    }
+
+    prompts = []
+
+    async def mock_generate(prompt):
+        prompts.append(prompt)
+
+        if len(prompts) == 1:
+            return "The pod is in Failed state, but its cause is unknown."
+
+        return (
+            "Root Cause\n"
+            "The underlying root cause cannot be confirmed from "
+            "the available evidence.\n\n"
+            "Evidence\n"
+            "The pod is in Failed state. No logs or events were returned.\n\n"
+            "Impact\n"
+            "The pod is in Failed state.\n\n"
+            "What Is Not Confirmed\n"
+            "The underlying reason for the failure is not established."
+        )
+
+    monkeypatch.setattr(
+        orchestrator.llm,
+        "generate",
+        mock_generate,
+    )
+
+    answer = await orchestrator.generate_answer(
+        question="Investigate validator-test.",
+        tool_name="kubernetes_investigation",
+        tool_result=tool_result,
+        knowledge_results=[],
+    )
+
+    assert len(prompts) == 2
+    assert "Explicit eviction exception" in prompts[1]
+    assert (
+        "The underlying root cause cannot be confirmed "
+        "from the available evidence."
+        in prompts[1]
+    )
+    assert (
+        "The underlying root cause cannot be confirmed "
+        "from the available evidence."
+        in answer
+    )
+

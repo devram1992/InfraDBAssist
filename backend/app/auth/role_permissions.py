@@ -20,6 +20,13 @@ class RolePermissionMapper:
         "capacity_engineer": {
             "capacity.read",
         },
+        "developer": {
+            "database.read",
+            "infrastructure.read",
+            "kubernetes.read",
+            "capacity.read",
+            "audit.read",
+        },
         "platform_engineer": {
             "database.read",
             "infrastructure.read",

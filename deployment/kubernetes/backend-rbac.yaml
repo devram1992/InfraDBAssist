@@ -1,0 +1,49 @@
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: infradb-assist-sa
+  namespace: infradb-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: infradb-assist-readonly
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs:
+      - get
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: infradb-assist-readonly-binding
+subjects:
+  - kind: ServiceAccount
+    name: infradb-assist-sa
+    namespace: infradb-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: infradb-assist-readonly
+

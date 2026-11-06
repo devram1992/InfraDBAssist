@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass
 
 
@@ -11,6 +12,7 @@ class KeycloakConfig:
     realm: str
     client_id: str
     client_secret: str | None = None
+    jwks_url: str | None = None
 
     def __post_init__(self) -> None:
         if not self.server_url.strip():
@@ -21,3 +23,6 @@ class KeycloakConfig:
 
         if not self.client_id.strip():
             raise ValueError("client_id must not be empty.")
+
+        if self.jwks_url is not None and not self.jwks_url.strip():
+            raise ValueError("jwks_url must not be empty when provided.")

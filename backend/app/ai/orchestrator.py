@@ -68,6 +68,11 @@ class AIOrchestrator:
             audit_service=self.audit_service,
         )
 
+        # Development POC conversation context.
+        # Keys are scoped by authenticated user ID and conversation ID.
+        # Values are server-side tool results, never accepted from the browser.
+        self.conversation_context: dict[tuple[str, str], dict] = {}
+
 
 
 
@@ -1687,64 +1692,71 @@ Engineer question:
 
 
 
-        # ---------------------------------------------------------
+        # Resolve a supplied pod-name prefix once, then use the
+        # canonical pod name for logs and events. The Kubernetes
+        # tool returns pod details under data["pod"].
+        resolved_pod = pod
+        details_result = results["pod_details"]
 
+        if (
+            isinstance(details_result, dict)
+            and details_result.get("status") == "success"
+        ):
+            details_data = details_result.get("data")
+            pod_details = (
+                details_data.get("pod")
+                if isinstance(details_data, dict)
+                else None
+            )
+
+            if isinstance(pod_details, dict):
+                candidate_name = pod_details.get("name")
+            elif isinstance(pod_details, str):
+                candidate_name = pod_details
+            else:
+                candidate_name = (
+                    details_data.get("name")
+                    if isinstance(details_data, dict)
+                    else None
+                )
+
+            if isinstance(candidate_name, str) and candidate_name.strip():
+                resolved_pod = candidate_name.strip()
+
+        resolved_parameters = {
+            "cluster": cluster,
+            "namespace": namespace,
+            "pod": resolved_pod,
+        }
+
+        # ---------------------------------------------------------
         # Signal 2: Pod logs
-
         # ---------------------------------------------------------
-
-
 
         results["logs"] = (
-
             await self.execute_tool(
-
                 tool_name="kubernetes",
-
                 parameters={
-
-                    **base_parameters,
-
+                    **resolved_parameters,
                     "action": "logs",
-
                 },
-
                 user_context=user_context,
-
             )
-
         )
 
-
-
         # ---------------------------------------------------------
-
         # Signal 3: Kubernetes events
-
         # ---------------------------------------------------------
-
-
 
         results["events"] = (
-
             await self.execute_tool(
-
                 tool_name="kubernetes",
-
                 parameters={
-
-                    "cluster": cluster,
-
-                    "namespace": namespace,
-
+                    **resolved_parameters,
                     "action": "events",
-
                 },
-
                 user_context=user_context,
-
             )
-
         )
 
 
@@ -1764,6 +1776,156 @@ Engineer question:
             for result in results.values()
 
         )
+
+
+
+        evidence_summary = {}
+
+        for signal_name, signal_result in results.items():
+
+            if not isinstance(signal_result, dict):
+
+                evidence_summary[signal_name] = {
+
+                    "status": "error",
+
+                    "availability": "invalid_result",
+
+                    "detail": "The signal returned an invalid result.",
+
+                }
+
+                continue
+
+
+
+            signal_status = signal_result.get(
+
+                "status",
+
+                "unknown",
+
+            )
+
+            signal_data = signal_result.get("data")
+
+            summary = {
+
+                "status": signal_status,
+
+                "availability": "unavailable",
+
+            }
+
+
+
+            if signal_status != "success":
+
+                summary["detail"] = signal_result.get(
+
+                    "error",
+
+                    "Evidence collection did not succeed.",
+
+                )
+
+            elif signal_name == "pod_details":
+
+                if isinstance(signal_data, dict) and signal_data:
+
+                    summary["availability"] = "available"
+
+                    summary["detail"] = "Pod details were returned."
+
+                else:
+
+                    summary["availability"] = "empty"
+
+                    summary["detail"] = "No pod details were returned."
+
+            elif signal_name == "logs":
+
+                log_data = (
+
+                    signal_data.get("logs")
+
+                    if isinstance(signal_data, dict)
+
+                    else None
+
+                )
+
+                log_content = (
+
+                    log_data.get("content")
+
+                    if isinstance(log_data, dict)
+
+                    else None
+
+                )
+
+                if isinstance(log_content, str) and log_content.strip():
+
+                    summary["availability"] = "available"
+
+                    summary["detail"] = "Pod log content was returned."
+
+                else:
+
+                    summary["availability"] = "empty"
+
+                    summary["detail"] = "No pod log content was returned."
+
+            elif signal_name == "events":
+
+                event_data = (
+
+                    signal_data.get("events")
+
+                    if isinstance(signal_data, dict)
+
+                    else None
+
+                )
+
+                event_items = (
+
+                    event_data.get("items")
+
+                    if isinstance(event_data, dict)
+
+                    else None
+
+                )
+
+                if isinstance(event_items, list) and event_items:
+
+                    summary["availability"] = "available"
+
+                    summary["record_count"] = len(event_items)
+
+                    summary["detail"] = (
+
+                        f"{len(event_items)} pod-specific event(s) were returned."
+
+                    )
+
+                else:
+
+                    summary["availability"] = "empty"
+
+                    summary["record_count"] = 0
+
+                    summary["detail"] = (
+
+                        "No pod-specific events were returned."
+
+                    )
+
+
+
+            evidence_summary[signal_name] = summary
 
 
 
@@ -1791,7 +1953,11 @@ Engineer question:
 
             "pod": pod,
 
+            "resolved_pod": resolved_pod,
+
             "signals": results,
+
+            "evidence_summary": evidence_summary,
 
         }
 
@@ -2013,12 +2179,143 @@ Engineer question:
 
 
     @staticmethod
+    def _format_kubernetes_health(
+        tool_name: str,
+        tool_result: dict,
+    ) -> str | None:
+        """Format Kubernetes health data deterministically from tool output."""
+
+        if tool_name != "kubernetes" or not isinstance(tool_result, dict):
+            return None
+        if tool_result.get("status") != "success":
+            return None
+
+        data = tool_result.get("data")
+        if not isinstance(data, dict) or data.get("action") != "health":
+            return None
+
+        nodes = data.get("nodes")
+        pods = data.get("pods")
+        if not isinstance(nodes, dict) or not isinstance(pods, dict):
+            return None
+
+        def safe_count(container: dict, key: str) -> int:
+            value = container.get(key, 0)
+            return (
+                value
+                if isinstance(value, int)
+                and not isinstance(value, bool)
+                and value >= 0
+                else 0
+            )
+
+        cluster = data.get("cluster") or "Unknown"
+        node_items = nodes.get("items")
+        pod_items = pods.get("items")
+        high_restart_items = pods.get("high_restart_pods")
+
+        lines = [
+            f"Kubernetes Cluster Health: {cluster}",
+            "",
+            "Node health:",
+            f"- Total nodes: {safe_count(nodes, 'count')}",
+            f"- Ready: {safe_count(nodes, 'ready')}",
+            f"- Not ready: {safe_count(nodes, 'not_ready')}",
+        ]
+
+        if isinstance(node_items, list):
+            for node in node_items:
+                if not isinstance(node, dict):
+                    continue
+                name = str(node.get("name") or "Unknown")
+                status = str(node.get("status") or "Unknown")
+                version = node.get("kubelet_version")
+                runtime = node.get("runtime")
+                details = []
+                if version:
+                    details.append(f"Kubelet: {version}")
+                if runtime:
+                    details.append(f"Runtime: {runtime}")
+                suffix = f" ({'; '.join(details)})" if details else ""
+                lines.append(f"- {name}: {status}{suffix}")
+
+        lines.extend([
+            "",
+            "Pod summary:",
+            f"- Total pods: {safe_count(pods, 'count')}",
+            f"- Running: {safe_count(pods, 'running')}",
+            f"- Pending: {safe_count(pods, 'pending')}",
+            f"- Failed: {safe_count(pods, 'failed')}",
+            f"- Succeeded: {safe_count(pods, 'succeeded')}",
+            f"- Total container restarts: {safe_count(pods, 'restart_total')}",
+        ])
+
+        def append_pod_section(title: str, selected: list, field: str) -> None:
+            valid = [item for item in selected if isinstance(item, dict)]
+            lines.extend(["", title])
+            if not valid:
+                lines.append("- None reported")
+                return
+            for item in valid:
+                name = str(item.get("name") or "Unknown")
+                namespace = str(item.get("namespace") or "Unknown")
+                value = item.get(field, "Unknown")
+                lines.append(f"- {namespace}/{name}: {value}")
+
+        valid_pods = (
+            [item for item in pod_items if isinstance(item, dict)]
+            if isinstance(pod_items, list)
+            else []
+        )
+        pending_pods = [
+            item for item in valid_pods
+            if str(item.get("phase", "")).lower() == "pending"
+        ]
+        failed_pods = [
+            item for item in valid_pods
+            if str(item.get("phase", "")).lower() == "failed"
+        ]
+
+        append_pod_section("Pending pods:", pending_pods, "phase")
+        append_pod_section("Failed pods:", failed_pods, "phase")
+
+        # Include only pods with at least three restarts.
+        high_restart_pods = [
+            item
+            for item in (
+                high_restart_items
+                if isinstance(high_restart_items, list)
+                else []
+            )
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("restart_count"), int)
+                and not isinstance(item.get("restart_count"), bool)
+                and item["restart_count"] >= 3
+            )
+        ]
+
+        # Show the highest restart counts first.
+        high_restart_pods.sort(
+            key=lambda item: item["restart_count"],
+            reverse=True,
+        )
+
+        append_pod_section(
+            "Pods reported with high restart counts (3 or more):",
+            high_restart_pods,
+            "restart_count",
+        )
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _format_kubernetes_pod_inventory(
         question: str,
         tool_name: str,
         tool_result: dict,
     ) -> str | None:
-        """Format a complete Kubernetes pod inventory without LLM truncation."""
+        """Format Kubernetes pod inventory as a namespace-grouped table."""
 
         if tool_name != "kubernetes":
             return None
@@ -2034,9 +2331,7 @@ Engineer question:
         if not any(term in normalized_question for term in inventory_terms):
             return None
 
-        if not isinstance(tool_result, dict):
-            return None
-        if tool_result.get("status") != "success":
+        if not isinstance(tool_result, dict) or tool_result.get("status") != "success":
             return None
 
         data = tool_result.get("data")
@@ -2051,64 +2346,83 @@ Engineer question:
         if not isinstance(items, list):
             return None
 
-        grouped: dict[str, list[dict]] = {}
+        rows: list[tuple[str, str, str, int]] = []
         phase_counts: dict[str, int] = {}
+        namespace_counts: dict[str, int] = {}
 
         for pod in items:
             if not isinstance(pod, dict):
                 continue
 
-            namespace = pod.get("namespace") or "unknown"
-            if not isinstance(namespace, str):
-                namespace = str(namespace)
+            namespace = str(pod.get("namespace") or "unknown")
+            name = str(pod.get("name") or "<unknown>")
+            phase = str(pod.get("phase") or "Unknown")
+            restart_count = pod.get("restart_count", 0)
 
-            grouped.setdefault(namespace, []).append(pod)
+            if (
+                not isinstance(restart_count, int)
+                or isinstance(restart_count, bool)
+                or restart_count < 0
+            ):
+                restart_count = 0
 
-            phase = pod.get("phase") or "Unknown"
-            if not isinstance(phase, str):
-                phase = str(phase)
+            rows.append((namespace, name, phase, restart_count))
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
+            namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
 
-        valid_pod_count = sum(len(namespace_pods) for namespace_pods in grouped.values())
+        rows.sort(key=lambda row: (row[0].lower(), row[1].lower()))
         cluster = data.get("cluster") or "Unknown"
 
         lines = [
             f"Kubernetes Pod Inventory: {cluster}",
             "",
-            f"Total pods: {valid_pod_count}",
+            f"Total pods: {len(rows)}",
             "",
             "Status summary:",
         ]
 
-        for phase in sorted(phase_counts):
-            lines.append(f"- {phase}: {phase_counts[phase]}")
+        if phase_counts:
+            for phase in sorted(phase_counts):
+                lines.append(f"- {phase}: {phase_counts[phase]}")
+        else:
+            lines.append("- No pods returned")
 
         lines.extend(["", "Pods by namespace:"])
 
-        for namespace in sorted(grouped):
-            namespace_pods = grouped[namespace]
-            lines.extend(
-                [
-                    "",
-                    f"Namespace: {namespace} ({len(namespace_pods)} pods)",
-                    "| Pod name | Status | Restarts |",
-                    "|---|---|---:|",
+        if not rows:
+            lines.append("No pods were returned by the Kubernetes API.")
+        else:
+            for namespace in sorted(namespace_counts, key=str.lower):
+                namespace_rows = [
+                    row for row in rows if row[0] == namespace
                 ]
+                lines.extend([
+                    "",
+                    f"Namespace: {namespace} ({len(namespace_rows)} pods)",
+                    "NAME                STATUS      RESTARTS",
+                    "------------------  ----------  --------",
+                ])
+                for _, name, phase, restarts in namespace_rows:
+                    lines.append(
+                        f"{name:<19} {phase:<11} {restarts}"
+                    )
+
+        # Keep a Markdown table for consumers that expect the earlier format.
+        lines.extend([
+            "",
+            "Pod details (Markdown):",
+            "| Namespace | Pod name | Status | Restarts |",
+            "|---|---|---|---:|",
+        ])
+        for namespace, name, phase, restarts in rows:
+            safe_values = [
+                value.replace("|", "\\|")
+                for value in (namespace, name, phase, str(restarts))
+            ]
+            lines.append(
+                f"| {safe_values[0]} | {safe_values[1]} | "
+                f"{safe_values[2]} | {safe_values[3]} |"
             )
-
-            for pod in sorted(
-                namespace_pods,
-                key=lambda item: str(item.get("name") or "UNKNOWN"),
-            ):
-                name = str(pod.get("name") or "UNKNOWN").replace("|", "\\|")
-                phase = str(pod.get("phase") or "Unknown").replace("|", "\\|")
-                restart_count = pod.get("restart_count", 0)
-                if not isinstance(restart_count, int) or restart_count < 0:
-                    restart_count = 0
-
-                lines.append(
-                    f"| {name} | {phase} | {restart_count} |"
-                )
 
         return "\n".join(lines)
 
@@ -2133,6 +2447,13 @@ Engineer question:
         and relevant internal knowledge.
 
         """
+
+        health_answer = self._format_kubernetes_health(
+            tool_name=tool_name,
+            tool_result=tool_result,
+        )
+        if health_answer is not None:
+            return health_answer
 
         inventory_answer = self._format_kubernetes_pod_inventory(
             question=question,
@@ -2314,6 +2635,18 @@ Investigation rules:
 
     in the supplied evidence or relevant internal knowledge.
 
+
+
+27. Treat evidence_summary as the authoritative collection-status
+
+    indicator for each signal. A signal with status "error" was not
+
+    collected successfully. A signal with availability "empty"
+
+    succeeded but returned no records or content. Never interpret
+
+    missing or unavailable evidence as proof that no issue exists.
+
 """
 
 
@@ -2486,6 +2819,29 @@ Strict grounding rules:
 
 
 
+Explicit eviction exception:
+
+- If pod_details or diagnostic_facts explicitly reports pod reason
+  "Evicted" and includes the kubelet eviction message, treat that
+  explicit status and message as direct evidence of the eviction
+  cause. State the specific resource named in that message.
+- This exception applies only when the explicit eviction reason and
+  message are present in the supplied evidence.
+- If those fields are absent, do not infer eviction or resource
+  pressure from Failed state, exit code, or missing logs.
+
+
+
+0. Read evidence_summary before interpreting signal content. A signal
+
+   marked "error" was not collected successfully. A signal marked
+
+   "empty" returned no records or content. Do not describe unavailable
+
+   or empty evidence as proof that no issue exists.
+
+
+
 1. Use ONLY facts explicitly present in the Investigation evidence.
 
 2. Do not add facts from general model knowledge.
@@ -2602,6 +2958,99 @@ Strict grounding rules:
         return normalized in greetings
 
 
+    @staticmethod
+    def _is_formatting_followup(question: str) -> bool:
+        """Return True for requests that only change the previous answer's format."""
+
+        normalized = " ".join(question.lower().strip().split())
+        patterns = (
+            r"\b(list|bullet)\s+format\b",
+            r"\b(as|in)\s+a\s+list\b",
+            r"\b(show|give|display|present)\s+(it|that|the result)\s+as\s+(a\s+)?list\b",
+            r"\b(table)\s+format\b",
+            r"\b(as|in)\s+a\s+table\b",
+            r"\bformat\s+(it|that|the result)\s+as\s+(a\s+)?(list|table)\b",
+        )
+        return any(re.search(pattern, normalized) for pattern in patterns)
+
+    @staticmethod
+    def _format_previous_kubernetes_pods(previous: dict) -> str | None:
+        """Build a list from a previously collected Kubernetes pod inventory."""
+
+        if previous.get("selected_tool") != "kubernetes":
+            return None
+
+        tool_result = previous.get("tool_result")
+        if not isinstance(tool_result, dict) or tool_result.get("status") != "success":
+            return None
+
+        data = tool_result.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        pods_data = data.get("pods")
+        if not isinstance(pods_data, dict):
+            return None
+
+        items = pods_data.get("items")
+        if not isinstance(items, list):
+            return None
+
+        parameters = previous.get("parameters")
+        parameters = parameters if isinstance(parameters, dict) else {}
+        requested_namespace = parameters.get("namespace")
+
+        pods = [
+            pod for pod in items
+            if isinstance(pod, dict)
+            and (
+                not requested_namespace
+                or pod.get("namespace") == requested_namespace
+            )
+        ]
+
+        namespace_label = (
+            f" in namespace {requested_namespace}"
+            if requested_namespace
+            else ""
+        )
+
+        if not pods:
+            return (
+                f"No pod records were present in the previous result"
+                f"{namespace_label}. The Kubernetes query is not rerun "
+                f"for a formatting-only request."
+            )
+
+        pods.sort(
+            key=lambda pod: (
+                str(pod.get("namespace") or "").lower(),
+                str(pod.get("name") or "").lower(),
+            )
+        )
+
+        lines = [f"Kubernetes pods{namespace_label}:", ""]
+        for index, pod in enumerate(pods, start=1):
+            name = str(pod.get("name") or "Unknown")
+            namespace = str(pod.get("namespace") or "Unknown")
+            phase = str(pod.get("phase") or "Unknown")
+            restarts = pod.get("restart_count", 0)
+            if (
+                not isinstance(restarts, int)
+                or isinstance(restarts, bool)
+                or restarts < 0
+            ):
+                restarts = 0
+
+            lines.append(
+                f"{index}. **{name}** "
+                f"(Namespace: {namespace}, Status: {phase}, "
+                f"Restarts: {restarts})"
+            )
+
+        lines.extend(["", f"Total pods: {len(pods)}"])
+        return "\\n".join(lines)
+
     async def process(
 
         self,
@@ -2609,6 +3058,8 @@ Strict grounding rules:
         question: str,
 
         user_context: UserContext | None = None,
+
+        conversation_id: str | None = None,
 
     ) -> dict:
 
@@ -2688,6 +3139,90 @@ Strict grounding rules:
             raise ValueError(
                 "User context is required."
             )
+
+        if conversation_id is not None:
+            if (
+                not isinstance(conversation_id, str)
+                or not conversation_id.strip()
+                or len(conversation_id) > 128
+            ):
+                raise ValueError("Conversation ID must be a non-empty string of at most 128 characters.")
+            conversation_id = conversation_id.strip()
+
+        context_key = (
+            (user_context.user_id, conversation_id)
+            if conversation_id
+            else None
+        )
+
+        # =========================================================
+        # CONTEXTUAL FORMATTING FOLLOW-UP
+        # =========================================================
+
+        if context_key and self._is_formatting_followup(question):
+            previous = self.conversation_context.get(context_key)
+
+            if previous is None:
+                return {
+                    "status": "success",
+                    "question": question,
+                    "selected_tool": None,
+                    "parameters": {},
+                    "tool_result": None,
+                    "knowledge_results": [],
+                    "answer": (
+                        "I don't have an earlier tool result in this chat "
+                        "to reformat. Please repeat the original question."
+                    ),
+                }
+
+            previous_tool = previous.get("selected_tool")
+            registered_tool = (
+                self.tool_registry.get(previous_tool)
+                if isinstance(previous_tool, str)
+                else None
+            )
+
+            # Re-check the current user's permission before using prior data.
+            if (
+                registered_tool is None
+                or not user_context.has_permission(registered_tool.permission)
+            ):
+                return {
+                    "status": "error",
+                    "question": question,
+                    "selected_tool": None,
+                    "parameters": {},
+                    "tool_result": None,
+                    "knowledge_results": [],
+                    "answer": "You are not authorized to access the previous tool result.",
+                }
+
+            formatted_answer = self._format_previous_kubernetes_pods(previous)
+            if formatted_answer is not None:
+                return {
+                    "status": "success",
+                    "question": question,
+                    "selected_tool": previous_tool,
+                    "parameters": previous.get("parameters", {}),
+                    "tool_result": previous.get("tool_result"),
+                    "knowledge_results": [],
+                    "answer": formatted_answer,
+                }
+
+            return {
+                "status": "success",
+                "question": question,
+                "selected_tool": previous_tool,
+                "parameters": previous.get("parameters", {}),
+                "tool_result": previous.get("tool_result"),
+                "knowledge_results": [],
+                "answer": (
+                    "The previous tool result does not contain a pod list "
+                    "that can be reformatted. Please ask for the required "
+                    "details again."
+                ),
+            }
 
         # =========================================================
         # CONVERSATIONAL REQUEST HANDLING
@@ -2996,6 +3531,26 @@ Strict grounding rules:
 
             if result_status in {"error", "partial"}:
                 response_status = result_status
+
+        # Store only successful results produced by this backend request.
+        # Never accept tool results supplied by the frontend.
+        if (
+            context_key
+            and tool_name
+            and isinstance(tool_result, dict)
+            and tool_result.get("status") == "success"
+        ):
+            self.conversation_context[context_key] = {
+                "question": question,
+                "selected_tool": tool_name,
+                "parameters": dict(parameters),
+                "tool_result": tool_result,
+            }
+
+            # Keep the in-memory POC bounded.
+            while len(self.conversation_context) > 500:
+                oldest_key = next(iter(self.conversation_context))
+                self.conversation_context.pop(oldest_key, None)
 
         return {
             "status": response_status,

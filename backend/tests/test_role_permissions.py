@@ -4,6 +4,15 @@ from backend.app.auth.role_permissions import (
 )
 
 
+ALL_READ_PERMISSIONS = {
+    "database.read",
+    "infrastructure.read",
+    "kubernetes.read",
+    "capacity.read",
+    "audit.read",
+}
+
+
 def test_database_engineer_gets_database_permission():
     mapper = RolePermissionMapper()
 
@@ -11,9 +20,17 @@ def test_database_engineer_gets_database_permission():
         {"database_engineer"}
     )
 
-    assert permissions == {
-        "database.read",
-    }
+    assert permissions == {"database.read"}
+
+
+def test_developer_gets_all_read_permissions():
+    mapper = RolePermissionMapper()
+
+    permissions = mapper.get_permissions(
+        {"developer"}
+    )
+
+    assert permissions == ALL_READ_PERMISSIONS
 
 
 def test_platform_engineer_gets_all_read_permissions():
@@ -23,13 +40,7 @@ def test_platform_engineer_gets_all_read_permissions():
         {"platform_engineer"}
     )
 
-    assert permissions == {
-        "database.read",
-        "infrastructure.read",
-        "kubernetes.read",
-        "capacity.read",
-        "audit.read",
-    }
+    assert permissions == ALL_READ_PERMISSIONS
 
 
 def test_admin_gets_all_read_permissions():
@@ -39,13 +50,7 @@ def test_admin_gets_all_read_permissions():
         {"admin"}
     )
 
-    assert permissions == {
-        "database.read",
-        "infrastructure.read",
-        "kubernetes.read",
-        "capacity.read",
-        "audit.read",
-    }
+    assert permissions == ALL_READ_PERMISSIONS
 
 
 def test_multiple_roles_combine_permissions():
@@ -77,9 +82,7 @@ def test_unknown_role_gets_no_permissions():
 def test_empty_roles_get_no_permissions():
     mapper = RolePermissionMapper()
 
-    permissions = mapper.get_permissions(
-        set()
-    )
+    permissions = mapper.get_permissions(set())
 
     assert permissions == set()
 
@@ -88,12 +91,8 @@ def test_roles_must_be_a_set():
     mapper = RolePermissionMapper()
 
     try:
-        mapper.get_permissions(
-            ["database_engineer"]
-        )
+        mapper.get_permissions(["database_engineer"])
     except ValueError as exc:
         assert str(exc) == "roles must be a set."
     else:
-        raise AssertionError(
-            "Expected ValueError"
-        )
+        raise AssertionError("Expected ValueError")

@@ -1,3 +1,4 @@
+
 from backend.app.auth.keycloak_config import KeycloakConfig
 
 
@@ -10,10 +11,7 @@ class KeycloakEndpoints:
         self,
         config: KeycloakConfig,
     ):
-        if not isinstance(
-            config,
-            KeycloakConfig,
-        ):
+        if not isinstance(config, KeycloakConfig):
             raise ValueError(
                 "config must be a KeycloakConfig."
             )
@@ -29,6 +27,9 @@ class KeycloakEndpoints:
 
     @property
     def jwks_url(self) -> str:
+        if self.config.jwks_url:
+            return self.config.jwks_url.rstrip("/")
+
         return (
             f"{self.issuer}"
             f"/protocol/openid-connect/certs"

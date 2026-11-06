@@ -1,4 +1,3 @@
-
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -10,7 +9,7 @@ from fastapi import (
     Query,
     status,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.ai.ollamaclient import OllamaClient
 from backend.app.ai.orchestrator import AIOrchestrator
@@ -63,6 +62,11 @@ app.state.ollama_client = ollama_client
 
 class ChatRequest(BaseModel):
     question: str
+    conversation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class AuditEventResponse(BaseModel):
@@ -163,9 +167,16 @@ async def chat(
     request: ChatRequest,
     user: UserContext = Depends(authenticated_user),
 ):
+    process_kwargs = {"user_context": user}
+
+    # Preserve compatibility with callers that do not yet send a
+    # conversation ID, while forwarding it for conversation-aware chats.
+    if request.conversation_id is not None:
+        process_kwargs["conversation_id"] = request.conversation_id
+
     return await app.state.orchestrator.process(
         request.question,
-        user_context=user,
+        **process_kwargs,
     )
 
 

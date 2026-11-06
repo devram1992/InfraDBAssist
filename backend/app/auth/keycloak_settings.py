@@ -1,3 +1,4 @@
+
 import os
 
 from backend.app.auth.keycloak_config import KeycloakConfig
@@ -8,10 +9,12 @@ def load_keycloak_config() -> KeycloakConfig:
     realm = os.getenv("KEYCLOAK_REALM", "")
     client_id = os.getenv("KEYCLOAK_CLIENT_ID", "")
     client_secret = os.getenv("KEYCLOAK_CLIENT_SECRET")
+    jwks_url = os.getenv("KEYCLOAK_JWKS_URL") or None
 
     return KeycloakConfig(
         server_url=server_url,
         realm=realm,
         client_id=client_id,
         client_secret=client_secret,
+        jwks_url=jwks_url,
     )

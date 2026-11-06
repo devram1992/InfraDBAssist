@@ -339,6 +339,92 @@ async def test_execute_uses_namespace_filter(
 
 
 @pytest.mark.asyncio
+async def test_execute_returns_all_pods_across_namespaces(
+    monkeypatch,
+):
+    tool = KubernetesTool()
+
+    mock_pods = []
+
+    # Nine Running pods across both namespaces.
+    for i in range(9):
+        namespace = "kube-system" if i < 5 else "ingress-nginx"
+        mock_pods.append(
+            make_pod(
+                f"running-pod-{i}",
+                namespace=namespace,
+                phase="Running",
+                restart_count=i,
+            )
+        )
+
+    # Eight Error pods. Their Kubernetes pod phase is Failed.
+    for i in range(8):
+        mock_pods.append(
+            make_pod(
+                f"error-pod-{i}",
+                namespace="ingress-nginx",
+                phase="Failed",
+            )
+        )
+
+    # An Evicted pod also normally has phase Failed.
+    mock_pods.append(
+        make_pod(
+            "evicted-pod",
+            namespace="ingress-nginx",
+            phase="Failed",
+        )
+    )
+
+    mock_core_api = Mock()
+    mock_core_api.list_node.return_value = SimpleNamespace(items=[])
+    mock_core_api.list_pod_for_all_namespaces.return_value = (
+        SimpleNamespace(items=mock_pods)
+    )
+
+    monkeypatch.setattr(
+        "backend.app.tools.kubernetes.tool.config.load_kube_config",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        "backend.app.tools.kubernetes.tool.client.CoreV1Api",
+        Mock(return_value=mock_core_api),
+    )
+
+    result = await tool.execute(
+        {
+            "cluster": "Docker Desktop",
+            "action": "pods",
+            "namespace": None,
+        }
+    )
+
+    assert result["status"] == "success"
+
+    pod_data = result["data"]["pods"]
+    assert pod_data["count"] == 18
+    assert len(pod_data["items"]) == 18
+    assert pod_data["running"] == 9
+    assert pod_data["failed"] == 9
+
+    namespaces = {
+        pod["namespace"] for pod in pod_data["items"]
+    }
+    assert namespaces == {"kube-system", "ingress-nginx"}
+
+    pod_names = {
+        pod["name"] for pod in pod_data["items"]
+    }
+    assert "evicted-pod" in pod_names
+    assert "error-pod-0" in pod_names
+    assert "running-pod-0" in pod_names
+
+    mock_core_api.list_pod_for_all_namespaces.assert_called_once_with()
+    mock_core_api.list_namespaced_pod.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_execute_returns_error_when_kubernetes_fails(
     monkeypatch,
 ):
@@ -712,3 +798,209 @@ async def test_execute_returns_kubernetes_events(monkeypatch):
     mock_core_api.list_namespaced_event.assert_called_once_with(
         namespace="default",
     )
+
+@pytest.mark.asyncio
+async def test_get_events_filters_to_requested_pod():
+    tool = KubernetesTool()
+
+    matching_event = SimpleNamespace(
+        type="Warning",
+        reason="FailedScheduling",
+        message="Insufficient memory",
+        count=2,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="validator-abc123",
+            kind="Pod",
+        ),
+    )
+
+    other_pod_event = SimpleNamespace(
+        type="Warning",
+        reason="BackOff",
+        message="Container restart backoff",
+        count=3,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="another-pod",
+            kind="Pod",
+        ),
+    )
+
+    mock_core_api = Mock()
+    mock_core_api.list_namespaced_event.return_value = (
+        SimpleNamespace(
+            items=[matching_event, other_pod_event]
+        )
+    )
+
+    result = await tool._get_events(
+        mock_core_api,
+        namespace="default",
+        pod="validator-abc123",
+    )
+
+    assert result["count"] == 1
+    assert result["items"][0]["object"] == "validator-abc123"
+    assert result["items"][0]["reason"] == "FailedScheduling"
+
+
+@pytest.mark.asyncio
+async def test_get_events_excludes_non_pod_resources_when_filtering():
+    tool = KubernetesTool()
+
+    pod_event = SimpleNamespace(
+        type="Warning",
+        reason="FailedScheduling",
+        message="Insufficient memory",
+        count=1,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="validator-abc123",
+            kind="Pod",
+        ),
+    )
+
+    deployment_event = SimpleNamespace(
+        type="Warning",
+        reason="ScalingReplicaSet",
+        message="Scaled deployment",
+        count=1,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="validator",
+            kind="Deployment",
+        ),
+    )
+
+    mock_core_api = Mock()
+    mock_core_api.list_namespaced_event.return_value = (
+        SimpleNamespace(
+            items=[pod_event, deployment_event]
+        )
+    )
+
+    result = await tool._get_events(
+        mock_core_api,
+        namespace="default",
+        pod="validator-abc123",
+    )
+
+    assert result["count"] == 1
+    assert result["items"][0]["object_kind"] == "Pod"
+
+
+@pytest.mark.asyncio
+async def test_get_events_without_pod_returns_namespace_events():
+    tool = KubernetesTool()
+
+    pod_event = SimpleNamespace(
+        type="Warning",
+        reason="BackOff",
+        message="Container restart backoff",
+        count=2,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="validator",
+            kind="Pod",
+        ),
+    )
+
+    deployment_event = SimpleNamespace(
+        type="Normal",
+        reason="ScalingReplicaSet",
+        message="Scaled deployment",
+        count=1,
+        metadata=SimpleNamespace(namespace="default"),
+        involved_object=SimpleNamespace(
+            name="validator",
+            kind="Deployment",
+        ),
+    )
+
+    mock_core_api = Mock()
+    mock_core_api.list_namespaced_event.return_value = (
+        SimpleNamespace(
+            items=[pod_event, deployment_event]
+        )
+    )
+
+    result = await tool._get_events(
+        mock_core_api,
+        namespace="default",
+    )
+
+    assert result["count"] == 2
+    assert len(result["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_pod_details_includes_image_pull_failure_evidence():
+    tool = KubernetesTool()
+
+    waiting = SimpleNamespace(
+        reason="ErrImageNeverPull",
+        message="Container image is not present with pull policy Never",
+    )
+    container_status = SimpleNamespace(
+        name="validator",
+        ready=False,
+        restart_count=0,
+        state=SimpleNamespace(
+            running=None,
+            waiting=waiting,
+            terminated=None,
+        ),
+        image="validator:latest",
+        image_id="",
+    )
+    mock_pod = SimpleNamespace(
+        metadata=SimpleNamespace(
+            namespace="default",
+            name="validator-59d58784f-bj6ss",
+            uid="test-uid",
+            labels={"app": "validator"},
+        ),
+        status=SimpleNamespace(
+            phase="Pending",
+            pod_ip=None,
+            host_ip=None,
+            conditions=[
+                SimpleNamespace(
+                    type="PodScheduled",
+                    status="True",
+                    reason="Scheduled",
+                    message="Successfully assigned default/validator-59d58784f-bj6ss",
+                ),
+            ],
+            container_statuses=[container_status],
+        ),
+        spec=SimpleNamespace(
+            node_name="docker-desktop",
+            containers=[
+                SimpleNamespace(
+                    name="validator",
+                    image="validator:latest",
+                    image_pull_policy="Never",
+                ),
+            ],
+        ),
+    )
+    mock_core_api = Mock()
+    mock_core_api.read_namespaced_pod.return_value = mock_pod
+
+    result = await tool._get_pod_details(
+        mock_core_api,
+        namespace="default",
+        pod="validator-59d58784f-bj6ss",
+    )
+
+    container = result["containers"][0]
+    assert container["state"] == "waiting"
+    assert container["state_reason"] == "ErrImageNeverPull"
+    assert container["state_message"] == (
+        "Container image is not present with pull policy Never"
+    )
+    assert container["image"] == "validator:latest"
+    assert container["image_pull_policy"] == "Never"
+    assert result["conditions"][0]["reason"] == "Scheduled"

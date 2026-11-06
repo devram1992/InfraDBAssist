@@ -267,7 +267,7 @@ class KubernetesTool(Tool):
                         "cluster": cluster,
                         "action": action,
                         "namespace": namespace,
-                        "pod": pod,
+                        "pod": data.get("pod", pod),
                         "logs": data,
                     },
                 }
@@ -277,20 +277,32 @@ class KubernetesTool(Tool):
             # ---------------------------------------------------------
 
             if action == "events":
-                data = await self._get_events(
-                    core_api,
-                    namespace=namespace,
-                )
+                if pod:
+                    data = await self._get_events(
+                        core_api,
+                        namespace=namespace,
+                        pod=pod,
+                    )
+                else:
+                    data = await self._get_events(
+                        core_api,
+                        namespace=namespace,
+                    )
+
+                event_data = {
+                    "cluster": cluster,
+                    "action": action,
+                    "namespace": namespace,
+                    "events": data,
+                }
+
+                if pod:
+                    event_data["pod"] = pod
 
                 return {
                     "tool": self.name,
                     "status": "success",
-                    "data": {
-                        "cluster": cluster,
-                        "action": action,
-                        "namespace": namespace,
-                        "events": data,
-                    },
+                    "data": event_data,
                 }
 
             # ---------------------------------------------------------
@@ -738,6 +750,13 @@ class KubernetesTool(Tool):
             None,
         ) or []
 
+        container_specs = {
+            getattr(container_spec, "name", None): container_spec
+            for container_spec in (
+                getattr(spec, "containers", None) or []
+            )
+        }
+
         containers = []
 
         restart_count = 0
@@ -793,13 +812,39 @@ class KubernetesTool(Tool):
             else:
                 container_state = "unknown"
 
+            container_name = getattr(
+                container,
+                "name",
+                None,
+            )
+            container_spec = container_specs.get(
+                container_name
+            )
+
+            waiting_reason = getattr(
+                waiting,
+                "reason",
+                None,
+            )
+            waiting_message = getattr(
+                waiting,
+                "message",
+                None,
+            )
+            terminated_reason = getattr(
+                terminated,
+                "reason",
+                None,
+            )
+            terminated_message = getattr(
+                terminated,
+                "message",
+                None,
+            )
+
             containers.append(
                 {
-                    "name": getattr(
-                        container,
-                        "name",
-                        None,
-                    ),
+                    "name": container_name,
                     "ready": getattr(
                         container,
                         "ready",
@@ -809,9 +854,31 @@ class KubernetesTool(Tool):
                         container_restart_count
                     ),
                     "state": container_state,
-                    "image": getattr(
-                        container,
-                        "image",
+                    "state_reason": (
+                        waiting_reason
+                        or terminated_reason
+                    ),
+                    "state_message": (
+                        waiting_message
+                        or terminated_message
+                    ),
+                    "exit_code": getattr(
+                        terminated,
+                        "exit_code",
+                        None,
+                    ),
+                    "signal": getattr(
+                        terminated,
+                        "signal",
+                        None,
+                    ),
+                    "image": (
+                        getattr(container, "image", None)
+                        or getattr(container_spec, "image", None)
+                    ),
+                    "image_pull_policy": getattr(
+                        container_spec,
+                        "image_pull_policy",
                         None,
                     ),
                     "image_id": getattr(
@@ -845,6 +912,16 @@ class KubernetesTool(Tool):
                         "status",
                         None,
                     ),
+                    "reason": getattr(
+                        condition,
+                        "reason",
+                        None,
+                    ),
+                    "message": getattr(
+                        condition,
+                        "message",
+                        None,
+                    ),
                 }
             )
 
@@ -873,6 +950,24 @@ class KubernetesTool(Tool):
                 status,
                 "phase",
                 "Unknown",
+            ),
+            # Pod-level reason and message carry lifecycle evidence such
+            # as kubelet eviction details. Keep these separate from the
+            # container's termination reason and message.
+            "reason": getattr(
+                status,
+                "reason",
+                None,
+            ),
+            "message": getattr(
+                status,
+                "message",
+                None,
+            ),
+            "qos_class": getattr(
+                status,
+                "qos_class",
+                None,
             ),
             "pod_ip": getattr(
                 status,
@@ -991,9 +1086,14 @@ class KubernetesTool(Tool):
         self,
         core_api,
         namespace: str,
+        pod: str = None,
     ) -> dict:
         """
         Return compact Kubernetes events for a namespace.
+
+        When pod is supplied, return only events whose involved
+        object is that exact pod. Omitting pod preserves the
+        namespace-wide events behavior.
         """
 
         response = (
@@ -1025,6 +1125,27 @@ class KubernetesTool(Tool):
                 None,
             )
 
+            object_name = getattr(
+                involved_object,
+                "name",
+                None,
+            )
+
+            object_kind = getattr(
+                involved_object,
+                "kind",
+                None,
+            )
+
+            # Filter by both object kind and exact pod name.
+            # This prevents events for other resources or pods
+            # in the same namespace from entering the diagnosis.
+            if pod and not (
+                object_kind == "Pod"
+                and object_name == pod
+            ):
+                continue
+
             events.append(
                 {
                     "type": getattr(
@@ -1052,16 +1173,8 @@ class KubernetesTool(Tool):
                         "namespace",
                         namespace,
                     ),
-                    "object": getattr(
-                        involved_object,
-                        "name",
-                        None,
-                    ),
-                    "object_kind": getattr(
-                        involved_object,
-                        "kind",
-                        None,
-                    ),
+                    "object": object_name,
+                    "object_kind": object_kind,
                 }
             )
 
